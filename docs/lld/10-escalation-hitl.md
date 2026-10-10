@@ -25,7 +25,7 @@ sequenceDiagram
   participant T as Tutor UI
   S->>O: question
   O->>O: trigger fires (route=human)
-  O->>S: immediate message: "I've passed this to your tutor. Typical reply: <SLA>"
+  O->>S: immediate message: "I've passed this to your tutor. Typical reply: within the SLA"
   O->>PG: ticket (status=open) + outbox event (one transaction)
   PG-->>K: relay publishes escalation.created
   K->>N: notify tutors (email / in-app / chat webhook)
