@@ -34,14 +34,15 @@ erDiagram
 | `tenant` | id, name, status, plan, monthly_token_budget, eval_retention (bool) | Budget feeds gateway limits (LLD 03) |
 | `app_user` | id, tenant_id, idp_subject, role (`student/instructor/admin/tutor`), status | `idp_subject` = OIDC `sub`; no passwords stored |
 | `course` | id, tenant_id, title, term | Unit of access control and of retrieval scope |
-| `enrollment` | tenant_id, course_id, user_id, role_in_course | Decides who can ask about which course |
+| `enrollment` | tenant_id, course_id, user_id, role_in_course (`student/instructor/tutor`) | Decides who can ask about which course |
 | `document` | id, tenant_id, course_id, title, current_version_id, status | Logical file |
-| `document_version` | id, tenant_id, document_id, version_no, object_key, sha256, status (`uploaded/processing/ready/failed`) | Immutable; sha256 dedupes re-uploads |
-| `chunk` | id, tenant_id, version_id, ordinal, text, token_count, embedding_model | Text kept here so vectors can be rebuilt |
+| `document_version` | id, tenant_id, document_id, version_no, object_key, sha256, status (`uploaded/processing/ready/failed`), error_reason, attempts, progress, flagged_injection (bool) | Content immutable; sha256 dedupes re-uploads; status fields drive the instructor UI (LLD 04) |
+| `chunk` | id, tenant_id, course_id, document_id, version_id, ordinal (position), text, page, heading_path, content_hash, token_count, embedding_model, flagged (bool) | Text kept here so vectors can be rebuilt |
 | `conversation` | id, tenant_id, user_id, course_id, created_at | One course per conversation (D1) |
 | `message_raw` | id, tenant_id, message_id, content, expires_at | Only written if tenant `eval_retention=true` (D2); separate table, stricter grants, short TTL |
-| `message` | id, tenant_id, conversation_id, role, content_redacted, raw_content_id (nullable), route (`cache/rule/small/large/human`), model, cited_chunk_ids[], tokens_in/out, cost_usd, latency_ms, trace_id | The telemetry row per answer |
-| `escalation_ticket` | id, tenant_id, message_id, reason, status, assigned_tutor_id, resolution | HITL |
+| `message` | id, tenant_id, conversation_id, role, content_redacted, raw_content_id (nullable), route (`cache/rule/redirect/cheap_llm/strong_llm/human`), model, cited_chunk_ids[], tokens_in/out, cost_usd, latency_ms, trace_id, `pipeline_meta` (JSON: policy_version, prompt_version, router_version, collection_version, cache_result+similarity, rewritten_query (redacted), rerank_used, cascade_used, retrieval_confidence, groundedness_score, budget_state, outcome `ok/blocked/none_found/error/escalated`) | The telemetry row per answer |
+| `escalation_ticket` | id, tenant_id, course_id, message_id, reason, priority, status, assigned_tutor_id, sla_deadline, resolution, outcome, approved_faq (bool), timestamps | HITL; lifecycle in LLD 10 |
+| `faq_entry` | id, tenant_id, course_id, question, answer, source ticket_id, approved_by, reviewed_at, source tags | Tutor-approved FAQ; indexed and cache-seeded (LLD 06/10) |
 | `usage_ledger` | tenant_id, user_id, day, tokens_in, tokens_out, cost_usd | Aggregated; source for budgets |
 | `audit_log` | id, tenant_id, actor_id, action, target, at, ip | Append-only, no UPDATE/DELETE grants |
 | `outbox_event` | id, tenant_id, type, payload, created_at, published_at | Transactional outbox → queue/CDC (LLD 07) |
@@ -96,5 +97,4 @@ Versioned collection name lets us swap embedding models by building a new collec
 | D1 | Retrieval scope | One course per conversation/question (cross-course deferred) | Simple filter and cache key; user picks a course in the UI |
 | D2 | Raw chat content | Keep for evaluation, opt-in per tenant, short TTL, separate table | `message_raw`, restricted role, purge job |
 | D3 | Primary isolation | Shared DB + `tenant_id` + Postgres RLS | Three-layer isolation, mandatory leak tests |
-
 | D4 | Who reads raw chats / messages | Only the tutor assigned to a specific `escalation_ticket`, and only that conversation | RLS policy on `message`/`message_raw` joins to `escalation_ticket.assigned_tutor_id`; every read is audit-logged |

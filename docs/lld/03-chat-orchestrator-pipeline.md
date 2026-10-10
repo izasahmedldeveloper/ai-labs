@@ -9,7 +9,7 @@ flowchart LR
   Q[Question] --> IG[Input guardrails]
   Q --> SC[Semantic cache]
   IG --> RT[Router]
-  SC -->|hit| OG
+  SC -->|hit: policy version + version checks pass| OUT
   SC -->|miss| RT
   RT -->|needs notes| RET[Retriever]
   RT -->|no notes| M[Model]
@@ -25,11 +25,12 @@ One object created at request start and passed through every stage.
 
 | Group | Fields | Notes |
 |---|---|---|
-| Identity | tenant_id, user_id, role | From the verified JWT only, set once, read-only afterwards |
+| Identity | tenant_id, user_id, role | From the verified JWT (via trusted gateway headers) only, set once, read-only afterwards |
+| Limits | budget_state (`ok/warning/soft_limit/hard_limit`) | Supplied by the gateway (LLD 09 A4); the router must use only the cheap tier at `soft_limit` |
 | Scope | course_id | Enrollment verified once at start (LLD 01 §3a) |
 | Input | question, request_id | request_id is client-generated (idempotency) |
 | Tracking | trace_id, started_at, per-stage timings | |
-| Results so far | guardrail_result, cache_result, route, chunks, answer, tokens_in/out, cost | Each stage writes its own findings; later stages read them |
+| Results so far | guardrail_result, cache_result, route, rewritten_query, chunks, retrieval_confidence, answer, tokens_in/out, cost, policy/prompt/router versions | Each stage writes its own findings; later stages read them |
 
 Why one shared object: one lookup instead of many (speed), tenant id cannot drift between stages (safety), the final
 context is a complete debugging record.
@@ -91,6 +92,9 @@ TTFT is the sum of everything before the first word, not only the model.
 | First-chunk output check | 100 ms |
 | **Total** | **≈ 1.44 s** |
 
+**Budgets vs timeouts:** the table gives P95 *planning budgets* that add up to the TTFT target. A stage's hard **timeout** (the point at which it counts as failed) can be larger for stages whose normal work is slow, e.g. the model stage times out at 2 s (cheap) / 3 s (strong) per LLD 09 B3. The 1.5 s TTFT SLO is a P95 target, not a hard cap. Query rewrite for follow-up questions (LLD 05 §3) adds up to ~100 ms; follow-ups therefore have a ~1.6 s TTFT planning figure.
+The table is the **worst-case sequential sum**: running input guardrails and cache lookup in parallel saves ~50 ms.
+
 Parallelism: input guardrails and cache lookup run **concurrently** (guardrail block cancels the cache result). The question
 embedding is computed **once** and shared by cache and retriever. Cache entries are written **only after** the answer passes
 output checks.
@@ -99,9 +103,9 @@ On blown budget the student gets a slower answer, a clear "try again", or a huma
 ## 7. Duplicates, disconnects, concurrency (Step 6)
 | Problem | Solution | Storage |
 |---|---|---|
-| Same question twice (double click/retry) | **Idempotency**: client `request_id`; seen ID → return existing answer or reattach to running stream | Redis, few-minute TTL |
+| Same question twice (double click/retry) | **Idempotency**: client `request_id`; seen ID → return existing answer or reattach to running stream | Control Redis, few-minute TTL |
 | Browser closes mid-answer | Detect disconnect, **cancel the model call** to stop spending tokens (optionally let a nearly finished answer complete for the cache); always log spend | In-memory cancel signal |
-| One user floods | **Concurrency limit per user** (e.g. 2 active streams) and per tenant; excess gets a quick "in progress" message (**backpressure**) | Redis counters |
+| One user floods | **Concurrency limit per user** (e.g. 2 active streams) and per tenant; excess gets a quick "in progress" message (**backpressure**) | Control Redis counters |
 The gateway handles requests-per-minute; the orchestrator handles simultaneous active answers.
 
 ## 8. Records and tests (Step 7)
@@ -129,6 +133,6 @@ Use a **fake model** (fixed text) so pipeline tests are fast, free and determini
 | Router before retriever | No retrieval cost for greetings/FAQs | Router cannot use retrieved context to judge complexity (revisit in router LLD) |
 
 ## 10. Open items for later LLDs
-- Should cached answers re-run output guardrails? (Decide in LLD cache/guardrails; default: no, they passed when stored, but re-check if guardrail policy version changed.)
-- Chunk size and check method for output guardrails (LLD guardrails).
+- Should cached answers re-run output guardrails? **Resolved in LLD 06 §6:** no re-check on a hit; entries carry the guardrail `policy_version` and are treated as a miss if it changed.
+- Chunk size and check method for output guardrails (LLD 08 §5: per sentence; first chunk with fast layers only).
 - Exact concurrency limits and idempotency TTL (tune with load tests).

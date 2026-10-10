@@ -48,7 +48,8 @@ flowchart TB
   subgraph Data
     PG[(PostgreSQL<br/>tenants, users, docs meta, audit, tickets)]
     VS[(Vector store<br/>Qdrant)]
-    RC[(Redis<br/>semantic cache, rate limit counters, sessions)]
+    RC[(Redis cache<br/>semantic cache)]
+    RCT[(Redis control<br/>rate limits, idempotency, sessions)]
     OBJ[(Object storage<br/>raw files)]
   end
   subgraph Obs[Observability]
@@ -62,6 +63,8 @@ flowchart TB
   GW --> ING & ADM
   CHAT --> IG --> SC --> RT --> RAG --> OG --> HITL
   SC <--> RC
+  GW -.counters.-> RCT
+  CHAT -.idempotency, concurrency.-> RCT
   RAG <--> VS
   RT --> MG --> P1 & P2
   HITL --> Q
@@ -92,7 +95,7 @@ flowchart TB
 | 12 | Message queue (Kafka) | Buffer spikes; decouple ingestion & escalations | Queuing/throttling |
 | 13 | Ingestion workers | Parse → chunk → embed → upsert; idempotent | Async/long tasks |
 | 14 | CDC consumer | On doc change: invalidate cache entries, re-index affected chunks | CDC & freshness |
-| 15 | Data stores | Postgres (truth), Qdrant (vectors), Redis (hot), S3-style (files) | — |
+| 15 | Data stores | Postgres (truth), Qdrant (vectors), Redis ×2 (cache; control), S3-style (files) | — |
 | 16 | Observability | Traces, P95/P99, cost per tenant, quality evals, alerts | Telemetry |
 
 ## 4. Key flows
@@ -120,7 +123,8 @@ to the student and can be added to the cache/FAQ.
 | ADR-4 | All LLM calls go through Model Gateway | Direct SDK calls | One place for failover, budgets, logging |
 | ADR-5 | SSE not WebSockets | WebSocket | One-way token stream, simpler through proxies/LB |
 | ADR-6 | Queue for anything slow or spiky; hot path never blocks on it | Sync everywhere | Protects P95 |
-| ADR-7 | Cache keyed by (tenant, embedding similarity ≥ threshold, doc-version tags) | Exact-match cache | Higher hit rate; threshold risk = wrong answers (tune with evals) |
+| ADR-7 | Cache namespaced by (tenant, course); hit = embedding similarity ≥ threshold AND source doc-version tags still current | Exact-match cache | Higher hit rate; threshold risk = wrong answers (tune with evals) |
+| ADR-8 | Two Redis deployments: (a) **cache** (semantic cache, vector index) and (b) **control** (rate-limit counters, idempotency keys, concurrency counters, denylist, sessions) | One shared Redis | A heavy vector-search load or a cache flush must not break rate limiting or login; control Redis is small and highly available |
 
 ## 6. Non-functional mapping
 - **Scalability:** stateless app tier behind LB; scale workers on queue depth; Qdrant/Redis sharded later.
@@ -134,12 +138,11 @@ LLM provider outage · vector DB slow · Redis down (bypass cache) · queue back
 in notes · cache serving stale answer after edit · one tenant exhausting budget · cross-tenant retrieval leak.
 
 ## 8. LLD order (next docs, one per component)
-1. Data model & tenancy · 2. Auth/roles · 3. Gateway & rate limiting · 4. Orchestrator pipeline contracts ·
-5. Ingestion & chunking · 6. Retriever · 7. Semantic cache + CDC · 8. Router · 9. Guardrails ·
-10. Model gateway · 11. Escalation · 12. Observability · 13. Frontend/SSE.
+All written (see `docs/lld/`): 01 Data model & tenancy · 02 Auth & roles · 03 Chat orchestrator pipeline ·
+04 Ingestion & chunking · 05 Retriever · 06 Semantic cache + CDC · 07 Router · 08 Guardrails ·
+09 API gateway + Model gateway · 10 Escalation (HITL) · 11 Observability · 12 Frontend & SSE.
 
 ## 9. Decisions for you
-1. **Multi-tenancy:** keep shared-DB + `tenant_id` (ADR-2), or do you want to learn the harder DB-per-tenant model?
-2. **Queue:** Kafka (decided). Trade-off to learn: powerful (replay, partitions, ordering) but heavier to run than RabbitMQ.
-3. ~~Self-hosted small model~~ — removed (decided): both model tiers are hosted APIs behind the Model Gateway.
-4. Which component's LLD should we do first? (Suggest: #1 data model, since everything depends on it.)
+Resolved: (1) multi-tenancy = shared DB + `tenant_id` + Postgres RLS (LLD 01); (2) queue = **Kafka**, heavier than needed but chosen for learning;
+(3) no self-hosted LLM — both model tiers are hosted APIs behind the Model Gateway (small *classical* classifiers and a hosted reranker are used, see LLD 05/07/08);
+(4) LLD order: see section 8. Open: see `docs/README.md` (open questions list).

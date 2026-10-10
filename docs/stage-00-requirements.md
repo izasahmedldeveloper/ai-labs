@@ -1,7 +1,7 @@
 # Stage 0 — Requirements & capacity estimation
 
 ## Why this comes first
-Every later choice (cache? queue? small model?) is justified by numbers here.
+Every later choice (cache? queue? cheaper model?) is justified by numbers here.
 Without them you are cargo-culting the video.
 
 ## Functional requirements (what it does)
@@ -26,7 +26,7 @@ Without them you are cargo-culting the video.
 - Cost at a $3/M blended frontier price ≈ **$780/month** → 15× over the $50 ceiling.
 
 **Insight:** the budget is impossible with a naive design. That gap is the justification for
-semantic caching (Stage 5, FAQ-style repeats maybe 30–40%), routing to small models (Stage 7),
+semantic caching (Stage 5, FAQ-style repeats maybe 30–40%), routing to cheaper hosted models (LLD 07),
 and token budgets (Stage 3). We will re-measure after each stage.
 
 ## Decisions for you

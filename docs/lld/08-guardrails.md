@@ -110,7 +110,7 @@ Log decision, rule/classifier that fired, policy_version, score — **not** the 
 |---|---|---|
 | D1 | Input max length | 2,000 characters |
 | D2 | PII handling | Redact before log/cache/embed/model |
-| D3 | Classifier | Small hosted/self-run classifier model (not an LLM) for injection+policy; no self-hosted LLM |
+| D3 | Classifier | Small classifier models (not LLMs), run inside our own services or via a managed API, for injection+policy; no self-hosted LLM |
 | D4 | LLM-as-judge | Borderline cases only |
 | D5 | Output checking | Chunked, per sentence; first chunk fast layers only |
 | D6 | Tools for the model | None in v1 |

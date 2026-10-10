@@ -48,6 +48,7 @@ First login: if no `app_user` row for (`tenant_id`,`sub`), create it (JIT provis
 | Role | Can |
 |---|---|
 | student | ask in *enrolled* courses; see own conversations |
+| (note) instructor and tutor also have chat access in courses they are enrolled in (to test answers); the gateway allows `/chat/*` for student, instructor and tutor, and the orchestrator still requires course enrollment |
 | instructor | upload/replace/delete documents in *own* courses; view course analytics (no raw chat) |
 | tutor | open **only assigned** tickets and the conversation attached (decision D4) |
 | tenant_admin | manage users, courses, enrollments, budget, SSO settings; view audit log |

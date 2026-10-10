@@ -97,7 +97,7 @@ Expected hit rate for FAQ-style study questions: 30–40% (assumption from Stage
 ## 13. Decisions (defaults — edit as you wish)
 | # | Decision | Default |
 |---|---|---|
-| D1 | Store | Redis with vector index (RediSearch), same Redis cluster as counters but separate namespace |
+| D1 | Store | Redis with vector index (RediSearch) — the **cache Redis** deployment, separate from the control Redis used for rate limits/idempotency/sessions (HLD ADR-8) |
 | D2 | Similarity threshold | 0.92 cosine, tuned from labeled data |
 | D3 | TTL | 7 days (1 day for fast-changing courses) |
 | D4 | Borderline second check | On for 0.88–0.92 |

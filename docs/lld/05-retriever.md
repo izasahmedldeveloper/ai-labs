@@ -65,7 +65,7 @@ A **cross-encoder reranker** reads question + each candidate *together* and scor
 ## 6. Step 4 — Selection, context building, citations
 After reranking:
 1. **Score threshold:** drop chunks below a minimum rerank score. If none remain → `none_found` (bot says the notes don't cover it, or offers a human tutor).
-2. **Confidence:** `high` (top score well above threshold), `low` (borderline), `none`. Router/escalation can use `low` (LLD 08 escalation).
+2. **Confidence:** `high` (top score well above threshold), `low` (borderline), `none`. Router/escalation can use `low` (escalation trigger: LLD 10 §1).
 3. **Neighbour expansion:** if a chunk was cut mid-explanation, optionally add the previous/next chunk (position index from LLD 04). Cap total tokens.
 4. **De-duplicate:** drop near-identical chunks (overlap/duplicated slides).
 5. **Token budget:** total context ≤ ~2,000 tokens (D2); keep the highest-ranked that fit.
@@ -85,6 +85,7 @@ Ordering for the model: best chunk first (and last, if long — models attend to
 | Vector + keyword (parallel) | 50–100 ms |
 | Fusion + rerank | ~150 ms |
 | Select/build context | < 10 ms |
+The 300 ms budget (LLD 03) covers the non-follow-up path (vector+keyword ≈ 100 ms, rerank ≈ 150 ms, select < 10 ms). Follow-ups add the rewrite (~100 ms) before this stage; LLD 03 §6 accounts for it (TTFT ≈ 1.6 s for follow-ups).
 Over budget → skip rerank first; then retrieve with vector-only; if still failing, required-stage failure.
 Qdrant: payload indexes on tenant_id, course_id, version status; scale by shard/replica later.
 
@@ -137,6 +138,6 @@ Run the evaluation on every change to chunk size, embedding model, k values or r
 | D7 | Neighbour expansion | On, capped by token budget |
 
 ## 13. Open items for later LLDs
-- Use `confidence=low` as an escalation signal (LLD escalation/HITL).
+- ~~Use `confidence=low` as an escalation signal~~ — done in LLD 10 §1 (repeated low/none results trigger a ticket).
 - Whether the cache lookup uses the rewritten query (LLD 06; default: yes, so follow-ups cache sensibly).
 - Per-course glossary / synonym expansion (post-v1).

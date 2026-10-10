@@ -16,7 +16,7 @@ the problem, options considered, the trade-off we chose, and how to verify it.
 | 4 | Input/output guardrails | Prompt injection, PII, off-topic |
 | 5 | Semantic cache | When is a cached answer "the same question"? |
 | 6 | Freshness / CDC re-indexing | How do cache + index learn notes changed? |
-| 7 | Hybrid routing (rules → classifier → small LLM → big LLM) | Minimum sufficient intelligence |
+| 7 | Hybrid routing (rules → classifier → cheap hosted LLM → strong hosted LLM) | Minimum sufficient intelligence |
 | 8 | Human-in-the-loop escalation | What is too risky/uncertain for the bot? |
 | 9 | Model gateway & failover (LiteLLM-style) | What if a provider is down? |
 | 10 | Queues & throttling | Spikes and long-running jobs (e.g. ingest big PDFs) |

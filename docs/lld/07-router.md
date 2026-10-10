@@ -33,7 +33,7 @@ Router returns `{route, needs_retrieval, reason, confidence}` into the request c
 Greetings/thanks/goodbye, "help", "who are you", empty or one-word input, known commands, regex-detectable asks (e.g. "office hours" → lookup template). Rules are explicit, tested, and easy to audit. Keep the list small; anything unsure falls through.
 
 ## 4. Tier 2 — Intent classifier (~10 ms, near 0 cost)
-A small classical ML model (e.g. logistic regression / gradient boosting over embeddings or TF-IDF) — **no LLM call**. Classes:
+A small classical ML model (e.g. logistic regression / gradient boosting over embeddings or TF-IDF), run inside the orchestrator process — **no LLM call, no self-hosted LLM**. Classes:
 `course_question`, `chitchat`, `out_of_scope`, `sensitive_or_high_stakes` (grade disputes, cancellation, personal circumstances, mental health, complaints), `unclear`.
 - Trained on labeled real/synthetic questions; retrained periodically; versioned.
 - Uses the **existing question embedding** (LLD 03) so it adds almost no latency.

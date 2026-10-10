@@ -34,7 +34,7 @@ Spans: `gateway`, `context_load`, `input_guardrails`, `cache_lookup`, `router`, 
 Span attributes: tenant_id, course_id, route, model, cache result, rule fired, policy version, token counts, cost, outcome (`ok|skipped|failed`). **No raw text, no PII** in attributes.
 Sampling: keep 100% of errors, blocked, escalated and slow (> P95) traces; sample ~10% of normal traces; Langfuse keeps all LLM calls' metadata (not content) — content only for the opt-in tenants (LLD 01).
 
-## 5. Metrics (SLIs) and targets (SLOs)
+## 4. Metrics (SLIs) and targets (SLOs)
 | Area | SLI | SLO / target |
 |---|---|---|
 | Availability | % successful chat requests (excluding user errors) | ≥ 99.5% (Stage 0) |
@@ -50,7 +50,7 @@ Sampling: keep 100% of errors, blocked, escalated and slow (> P95) traces; sampl
 | Dependencies | Provider error rate, failover count, circuit-open time | alerts below |
 **Error budget:** 99.5% allows ~3.6 h/month downtime; if burned fast, freeze feature releases and fix reliability first.
 
-## 6. Dashboards
+## 5. Dashboards
 1. **Service health** (golden signals per component, per-stage latency waterfall).
 2. **Cost** (by tenant, route, model; cache $ saved; budget burn; forecast).
 3. **Quality** (groundedness, thumbs, escalation, none-found by course; retrieval eval trend).
@@ -58,7 +58,7 @@ Sampling: keep 100% of errors, blocked, escalated and slow (> P95) traces; sampl
 5. **Ingestion** (queue lag, failures by reason, time to ready, DLQ).
 6. **Tenant view** (per university: usage, top questions topics, unanswered questions, escalation load) — a product feature for tenant admins/instructors, aggregated and privacy-safe.
 
-## 7. Alerting
+## 6. Alerting
 Principles: alert on **symptoms users feel** (SLO burn), not every internal blip; every alert has an owner, a runbook link, and a severity.
 | Alert | Severity | Condition (example) |
 |---|---|---|
@@ -75,24 +75,24 @@ Principles: alert on **symptoms users feel** (SLO burn), not every internal blip
 | Redis/Qdrant/Kafka health | Page | Component down |
 Synthetic canary: a scheduled **end-to-end probe** (test tenant) asks known questions every minute — checks availability, latency, correct citation, **and that tenant B's canary data never appears for tenant A**.
 
-## 8. LLM quality evaluation
+## 7. LLM quality evaluation
 - **Offline eval sets** (per LLD 05, 08): retrieval recall/precision, groundedness, red-team safety, router accuracy. Run in CI on every change to prompts, models, chunking, thresholds, reranker; compare to baseline; block regressions.
 - **Online sampling:** sample N answers/day per tenant (opt-in raw text) for automatic LLM-judge scoring (groundedness, helpfulness, citation accuracy) and a small human-review queue for calibration. Judge itself calibrated against human labels.
 - **User feedback:** thumbs up/down + reason; negative on cached answer evicts it (LLD 06).
 - **Prompt/version tracking:** every answer records prompt version, model, policy version, router version, embedding/collection version, so regressions can be traced to a change.
 - **A/B and shadow:** new model/router/threshold run in shadow or on a small tenant slice with metrics compared before rollout.
 
-## 9. Logging and privacy
+## 8. Logging and privacy
 Structured JSON logs, correlation by trace id. **PII-scrubbed at source** (redacted question text only; never raw text, tokens, secrets). Log levels: INFO for state changes, WARN for fail-open stages, ERROR for fail-closed. Retention: operational logs 30 days, traces 14 days, metrics 13 months aggregated, audit log 1 year (LLD 01). Access to logs/Langfuse is role-based and audited; tenant data never leaves its tenant scope in tenant-facing dashboards. Opt-in raw evaluation content follows LLD 01 (30-day TTL, restricted role).
 
-## 10. Operations
+## 9. Operations
 - **Runbooks** for each page alert (provider failover, Redis down, queue lag, cache false-hit disable via feature flag, guardrail rule kill-switch with approval).
 - **Incident process:** severity levels, status page, post-incident review with action items.
 - **Feature flags** for: cache per tenant, rerank on/off, model tier mapping, router versions — safe, instant levers during incidents.
 - **Capacity review** monthly using real request, token, and ingestion numbers vs Stage 0 assumptions; update the capacity math.
 - **Load tests** before launch and after major changes: peak (exam eve ~3 QPS and 10× bursts), ingestion floods, provider failure drills.
 
-## 10b. Chaos / failure drills (verify the fail-open/closed table of LLD 03)
+## 10. Chaos / failure drills (verify the fail-open/closed table of LLD 03)
 Kill Redis → answers continue (cache miss, limits fallback). Kill the reranker → fused order used. Kill the primary model provider → failover. Kill output guardrails → no unchecked output sent. Kafka down → tickets still saved, notifications resume later. Run quarterly (game days).
 
 ## 11. Tests

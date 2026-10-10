@@ -12,7 +12,7 @@ TLS termination · WAF/DoS protection · JWT verification (Keycloak JWKS cached)
 flowchart LR
   C[Browser] -->|HTTPS| WAF[WAF / CDN<br/>DoS, bot rules] --> GW[API Gateway]
   GW -->|verify JWT offline| JW[(JWKS cache)]
-  GW -->|counters| R[(Redis)]
+  GW -->|counters| R[(Control Redis)]
   GW -->|tenant, user, role headers| APP[Orchestrator / Ingestion / Admin APIs]
   GW -.denylist check.-> R
 ```
@@ -27,7 +27,7 @@ flowchart LR
 7. Forward with **trusted headers** (`X-Tenant-Id`, `X-User-Id`, `X-Role`, `X-Request-Id`, `X-Trace-Id`); the gateway strips any client-supplied versions of these. Internal services accept them only from the gateway (network policy / mTLS).
 
 ### A3. Rate limiting
-Algorithm: **token bucket** (allows short bursts, enforces average) with counters in Redis (atomic Lua script), keyed by dimension:
+Algorithm: **token bucket** (allows short bursts, enforces average) with counters in the **control Redis** (atomic Lua script; HLD ADR-8), keyed by dimension:
 | Dimension | Example limit | Why |
 |---|---|---|
 | Per IP (before auth) | 60 req/min | Anonymous abuse, login flooding |
