@@ -41,7 +41,7 @@ flowchart TB
     P2[(Provider B)]
   end
   subgraph Async
-    Q[[Message queue<br/>Kafka / RabbitMQ]]
+    Q[[Message queue<br/>Kafka]]
     W[Ingestion workers<br/>parse, chunk, embed]
     CDC[CDC consumer<br/>cache invalidation + re-index]
   end
@@ -89,7 +89,7 @@ flowchart TB
 | 9 | Output guardrails | Groundedness check, PII scrub, policy filter | Guardrails |
 | 10 | Escalation (HITL) | Low confidence / sensitive topic → ticket for human tutor | HITL |
 | 11 | Model Gateway | Provider abstraction, failover, retries, central keys/quotas | AI gateway |
-| 12 | Message queue | Buffer spikes; decouple ingestion & escalations | Queuing/throttling |
+| 12 | Message queue (Kafka) | Buffer spikes; decouple ingestion & escalations | Queuing/throttling |
 | 13 | Ingestion workers | Parse → chunk → embed → upsert; idempotent | Async/long tasks |
 | 14 | CDC consumer | On doc change: invalidate cache entries, re-index affected chunks | CDC & freshness |
 | 15 | Data stores | Postgres (truth), Qdrant (vectors), Redis (hot), S3-style (files) | — |
@@ -140,6 +140,6 @@ in notes · cache serving stale answer after edit · one tenant exhausting budge
 
 ## 9. Decisions for you
 1. **Multi-tenancy:** keep shared-DB + `tenant_id` (ADR-2), or do you want to learn the harder DB-per-tenant model?
-2. **Queue:** Kafka (powerful, heavy) vs RabbitMQ/Redis Streams (simpler). Which do you want to learn?
+2. **Queue:** Kafka (decided). Trade-off to learn: powerful (replay, partitions, ordering) but heavier to run than RabbitMQ.
 3. ~~Self-hosted small model~~ — removed (decided): both model tiers are hosted APIs behind the Model Gateway.
 4. Which component's LLD should we do first? (Suggest: #1 data model, since everything depends on it.)
