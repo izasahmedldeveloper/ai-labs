@@ -30,7 +30,7 @@ flowchart TB
   subgraph Pipeline["Request pipeline inside Orchestrator"]
     IG[Input guardrails]
     SC[Semantic cache lookup]
-    RT[Router<br/>rules → classifier → small LLM → large LLM]
+    RT[Router<br/>rules → classifier → cheap hosted LLM → strong hosted LLM]
     RAG[Retriever<br/>hybrid search + rerank]
     OG[Output guardrails]
     HITL[Escalation decision]
@@ -39,7 +39,6 @@ flowchart TB
     MG[Model Gateway<br/>LiteLLM: failover, quotas, keys]
     P1[(Provider A)]
     P2[(Provider B)]
-    P3[(Self-hosted small model)]
   end
   subgraph Async
     Q[[Message queue<br/>Kafka / RabbitMQ]]
@@ -64,7 +63,7 @@ flowchart TB
   CHAT --> IG --> SC --> RT --> RAG --> OG --> HITL
   SC <--> RC
   RAG <--> VS
-  RT --> MG --> P1 & P2 & P3
+  RT --> MG --> P1 & P2
   HITL --> Q
   ING --> OBJ
   ING --> Q --> W --> VS
@@ -85,7 +84,7 @@ flowchart TB
 | 4 | Chat Orchestrator | Runs the request pipeline; owns conversation state | Core service |
 | 5 | Input guardrails | Prompt-injection & PII checks before anything costs money | Guardrails |
 | 6 | Semantic cache | Return stored answer for near-duplicate questions (tenant-scoped) | Semantic caching |
-| 7 | Router | Pick cheapest sufficient handler (rule → classifier → small → large LLM) | Minimum sufficient intelligence |
+| 7 | Router | Decide cheapest sufficient handler and whether retrieval is needed (rule → classifier → cheap hosted LLM → strong hosted LLM) | Minimum sufficient intelligence |
 | 8 | Retriever | Hybrid (BM25+vector) search with tenant filter, rerank, citations | RAG |
 | 9 | Output guardrails | Groundedness check, PII scrub, policy filter | Guardrails |
 | 10 | Escalation (HITL) | Low confidence / sensitive topic → ticket for human tutor | HITL |
@@ -101,8 +100,8 @@ flowchart TB
 **A. Ask a question (hot path, target first token < 1.5 s)**
 1. SPA → Gateway (JWT checked, rate/budget check) → Orchestrator.
 2. Input guardrails → cache lookup (tenant-scoped). **Hit → stream cached answer, done.**
-3. Router classifies: greeting/FAQ via rules, intent via classifier, else LLM tier by complexity.
-4. Retriever fetches top-k chunks (tenant filter mandatory) → model via Model Gateway (streamed).
+3. Router classifies: greeting/FAQ via rules (no retrieval, no LLM), intent via classifier, else picks an LLM tier by complexity.
+4. Only if the route needs course notes: Retriever fetches top-k chunks (tenant + course filter mandatory) → the chosen model via Model Gateway (streamed).
 5. Output guardrails on the stream; low confidence/sensitive → escalation path.
 6. Store answer in cache (with source-doc version tags); emit trace + cost.
 
@@ -142,5 +141,5 @@ in notes · cache serving stale answer after edit · one tenant exhausting budge
 ## 9. Decisions for you
 1. **Multi-tenancy:** keep shared-DB + `tenant_id` (ADR-2), or do you want to learn the harder DB-per-tenant model?
 2. **Queue:** Kafka (powerful, heavy) vs RabbitMQ/Redis Streams (simpler). Which do you want to learn?
-3. **Self-hosted small model (P3):** include from the start, or add in the router LLD?
+3. ~~Self-hosted small model~~ — removed (decided): both model tiers are hosted APIs behind the Model Gateway.
 4. Which component's LLD should we do first? (Suggest: #1 data model, since everything depends on it.)
