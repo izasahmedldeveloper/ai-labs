@@ -51,14 +51,13 @@ Built to **learn production AI system design**: every concern from the codebasic
 | Escalation SLA | urgent 1 h, high 4 h, normal 1 business day | LLD 10 |
 
 ## Decisions made so far
-Shared DB + `tenant_id` + Postgres RLS · one course per conversation · raw chat opt-in, ticket-only access · Kafka · no self-hosted LLM · OCR deferred past v1 · hosted reranker · chunked output guardrails (streaming + safety).
+Shared DB + `tenant_id` + Postgres RLS · one course per conversation · raw chat opt-in, ticket-only access · Kafka · no self-hosted LLM · Keycloak self-hosted, no university SSO in v1 · OCR deferred past v1 · hosted reranker · chunked output guardrails (streaming + safety).
 
 ## Still open (need your answer)
-1. **Keycloak** self-hosted (default) or a managed identity provider? (LLD 02)
-2. **University SSO** in v1, or Google/email login first with an SSO-ready design? (LLD 02)
-3. **15-minute tokens + denylist** acceptable, or instant revocation everywhere? (LLD 02)
-4. Confirm or change the **defaults** in each LLD's final decisions table (esp. LLD 04 D1 OCR, D6 soft-delete; LLD 06 D2 threshold; LLD 10 D2 SLAs).
-5. Capacity numbers in stage-00 are assumptions — replace with your real expected users.
+1. ~~Keycloak hosting~~ — **self-hosted** (decided). ~~University SSO~~ — **not in v1**; Google/email login, SSO-ready design (LLD 02).
+2. **15-minute tokens + denylist** acceptable, or instant revocation everywhere? (LLD 02 D3) — default stays unless you object.
+3. Confirm or change the **defaults** in each LLD's final decisions table (esp. LLD 04 D1 OCR, D6 soft-delete; LLD 06 D2 threshold; LLD 10 D2 SLAs).
+4. Capacity numbers in stage-00 are assumptions — replace with your real expected users.
 
 ## Known limitations (accepted)
 - Router decides before retrieval, so it can't judge difficulty from retrieved text (LLD 03/07).

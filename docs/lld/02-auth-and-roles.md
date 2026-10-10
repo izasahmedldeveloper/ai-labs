@@ -92,7 +92,11 @@ Log (append-only `audit_log`): login, role change, document upload/delete, enrol
 | Single realm + claim | scales | one misconfig affects all tenants |
 | In-code policy first | simple, testable | may outgrow → OPA later |
 
-## 12. Decisions for you
-1. Keycloak self-hosted (learn the standard) vs a managed IdP (less ops)? Default: Keycloak.
-2. Do we need per-tenant university SSO in v1, or just email/password + Google login first? Default: Google/email first, SSO-ready design.
-3. Is 15-minute access token + denylist acceptable, or do you want instant revocation everywhere (costlier)?
+## 12. Decisions
+| # | Question | Decision |
+|---|---|---|
+| D1 | Identity provider | **Keycloak, self-hosted** (decided). We operate it: HA deployment, backups, upgrades, monitoring |
+| D2 | University SSO in v1 | **No** (decided). v1 login = email/password and Google via Keycloak. The design stays SSO-ready (Keycloak identity brokering, tenant claim, JIT provisioning), so adding a university IdP later is configuration, not a redesign |
+| D3 | Access token lifetime | 15 min + Redis denylist for disabled users (default; still open — say if you want instant revocation everywhere) |
+
+Consequences of D1/D2: no per-tenant IdP configuration screens or SAML/OIDC federation testing in v1; tenant admins create or invite users and manage enrollments directly (or by CSV import); email verification and password reset flows come from Keycloak; MFA is optional per tenant and can be enabled in Keycloak.
