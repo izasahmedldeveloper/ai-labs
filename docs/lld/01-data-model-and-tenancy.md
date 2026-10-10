@@ -31,15 +31,16 @@ erDiagram
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `tenant` | id, name, status, plan, monthly_token_budget | Budget feeds gateway limits (LLD 03) |
+| `tenant` | id, name, status, plan, monthly_token_budget, eval_retention (bool) | Budget feeds gateway limits (LLD 03) |
 | `app_user` | id, tenant_id, idp_subject, role (`student/instructor/admin/tutor`), status | `idp_subject` = OIDC `sub`; no passwords stored |
-| `course` | id, tenant_id, title, term | Retrieval scope = course |
+| `course` | id, tenant_id, title, term | Unit of access control; retrieval spans all courses the user is enrolled in |
 | `enrollment` | tenant_id, course_id, user_id, role_in_course | Decides who can ask about which course |
 | `document` | id, tenant_id, course_id, title, current_version_id, status | Logical file |
 | `document_version` | id, tenant_id, document_id, version_no, object_key, sha256, status (`uploaded/processing/ready/failed`) | Immutable; sha256 dedupes re-uploads |
 | `chunk` | id, tenant_id, version_id, ordinal, text, token_count, embedding_model | Text kept here so vectors can be rebuilt |
-| `conversation` | id, tenant_id, user_id, course_id, created_at | |
-| `message` | id, tenant_id, conversation_id, role, content_redacted, route (`cache/rule/small/large/human`), model, cited_chunk_ids[], tokens_in/out, cost_usd, latency_ms, trace_id | The telemetry row per answer |
+| `conversation` | id, tenant_id, user_id, created_at | Not tied to one course (decision D1) |
+| `message_raw` | id, tenant_id, message_id, content, expires_at | Only written if tenant `eval_retention=true` (D2); separate table, stricter grants, short TTL |
+| `message` | id, tenant_id, conversation_id, role, content_redacted, raw_content_id (nullable), route (`cache/rule/small/large/human`), model, cited_chunk_ids[], tokens_in/out, cost_usd, latency_ms, trace_id | The telemetry row per answer |
 | `escalation_ticket` | id, tenant_id, message_id, reason, status, assigned_tutor_id, resolution | HITL |
 | `usage_ledger` | tenant_id, user_id, day, tokens_in, tokens_out, cost_usd | Aggregated; source for budgets |
 | `audit_log` | id, tenant_id, actor_id, action, target, at, ip | Append-only, no UPDATE/DELETE grants |
@@ -49,8 +50,18 @@ erDiagram
 1. **Postgres RLS:** `ALTER TABLE x ENABLE RLS; POLICY USING (tenant_id = current_setting('app.tenant_id')::uuid)`.
    App connects as a non-owner role; each request does `SET LOCAL app.tenant_id = <jwt tenant claim>` in its transaction.
 2. **Vector store:** every point carries `tenant_id` + `course_id` payload; the retriever API *cannot be called without*
-   a filter (wrapper rejects it). Qdrant payload index on both fields.
-3. **Cache:** key namespace `t:{tenant_id}:c:{course_id}:...` — a lookup can never cross tenants by construction.
+   a `tenant_id` filter and an explicit `course_id IN (user's enrolled courses)` filter (wrapper rejects it otherwise).
+   Qdrant payload index on both fields.
+3. **Cache:** key namespace `t:{tenant_id}:...` so a lookup can never cross tenants by construction. Course-level access
+   is checked on hit (see section 3a).
+
+### 3a. Consequence of cross-course retrieval (D1)
+Because one answer may cite several courses, tenant isolation alone is not enough: **course entitlement** matters too.
+- Retrieval filter = the user's *entitlement set* (enrolled course ids), computed per request from `enrollment` (cached briefly in Redis, invalidated on enrollment change).
+- A cached answer stores `source_course_ids[]`. On a cache hit we serve it only if `source_course_ids ⊆ user's entitlement set`; otherwise treat as a miss.
+  This prevents a student from seeing content from a course they are not enrolled in via someone else's cached answer.
+- Trade-off: lower cache hit rate for students with different enrollments, in exchange for correctness. We will measure it (Stage 5).
+- Ranking: retrieval across many courses can surface the wrong course; the retriever returns the course title with each chunk and the answer must cite it. Optional later: a "which course?" clarifying question when scores are close.
 
 **Mandatory test:** two tenants with identical documents; assert a tenant-A user can never retrieve, cache-hit or read tenant-B data
 via API, vector search or cache (we add this as an automated test in the first coding stage).
@@ -65,7 +76,8 @@ via API, vector search or cache (we add this as an automated test in the first c
 Versioned collection name lets us swap embedding models by building a new collection and flipping an alias (zero downtime).
 
 ## 5. Retention & privacy
-- Messages store **redacted** content (PII scrubbed before persist); raw never logged.
+- Messages store **redacted** content (PII scrubbed before persist) by default; raw content never goes to general logs.
+- **Raw chat for quality evaluation (D2):** only if the tenant opts in (`eval_retention`). Stored in `message_raw` (separate grants: only the eval job/role can read), TTL 30 days, excluded from backups beyond TTL where feasible, and tenants can purge on request. Evaluators see it via a sampled export, never via the app API.
 - Conversation retention default 180 days per tenant policy; hard-delete job + delete vectors/cache on user/doc removal (GDPR-style).
 - Audit log retained 1 year, partitioned monthly.
 
@@ -82,7 +94,13 @@ Versioned collection name lets us swap embedding models by building a new collec
 | Outbox pattern | no lost events (DB write + event atomic) | extra table + relay process |
 | UUIDv7 | index-friendly, non-guessable | 16 bytes vs 8 |
 
-## 8. Decisions for you
-1. Course-scoped retrieval only, or also allow "ask across all my courses"? (Affects filters and cache keys.)
-2. Keep raw chat content for quality evals (opt-in per tenant), or redacted only?
-3. Do you accept RLS (DB-enforced) as the primary isolation, with the three layers above?
+## 8. Decisions (resolved)
+| # | Question | Decision | Consequence |
+|---|---|---|---|
+| D1 | Retrieval scope | Across all of the user's enrolled courses | Entitlement-set filter; cache hits checked against entitlements (3a) |
+| D2 | Raw chat content | Keep for evaluation, opt-in per tenant, short TTL, separate table | `message_raw`, restricted role, purge job |
+| D3 | Primary isolation | Shared DB + `tenant_id` + Postgres RLS | Three-layer isolation, mandatory leak tests |
+
+## 9. Open questions for you
+1. Should instructors/tutors be able to read raw chats of their own course's students for escalation, or only the tutor on a specific ticket?
+2. Should a student be able to scope a question to one course explicitly (a filter chip in the UI), in addition to the default "all my courses"?
