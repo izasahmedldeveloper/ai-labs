@@ -33,12 +33,12 @@ erDiagram
 |---|---|---|
 | `tenant` | id, name, status, plan, monthly_token_budget, eval_retention (bool) | Budget feeds gateway limits (LLD 03) |
 | `app_user` | id, tenant_id, idp_subject, role (`student/instructor/admin/tutor`), status | `idp_subject` = OIDC `sub`; no passwords stored |
-| `course` | id, tenant_id, title, term | Unit of access control; retrieval spans all courses the user is enrolled in |
+| `course` | id, tenant_id, title, term | Unit of access control and of retrieval scope |
 | `enrollment` | tenant_id, course_id, user_id, role_in_course | Decides who can ask about which course |
 | `document` | id, tenant_id, course_id, title, current_version_id, status | Logical file |
 | `document_version` | id, tenant_id, document_id, version_no, object_key, sha256, status (`uploaded/processing/ready/failed`) | Immutable; sha256 dedupes re-uploads |
 | `chunk` | id, tenant_id, version_id, ordinal, text, token_count, embedding_model | Text kept here so vectors can be rebuilt |
-| `conversation` | id, tenant_id, user_id, created_at | Not tied to one course (decision D1) |
+| `conversation` | id, tenant_id, user_id, course_id, created_at | One course per conversation (D1) |
 | `message_raw` | id, tenant_id, message_id, content, expires_at | Only written if tenant `eval_retention=true` (D2); separate table, stricter grants, short TTL |
 | `message` | id, tenant_id, conversation_id, role, content_redacted, raw_content_id (nullable), route (`cache/rule/small/large/human`), model, cited_chunk_ids[], tokens_in/out, cost_usd, latency_ms, trace_id | The telemetry row per answer |
 | `escalation_ticket` | id, tenant_id, message_id, reason, status, assigned_tutor_id, resolution | HITL |
@@ -50,18 +50,14 @@ erDiagram
 1. **Postgres RLS:** `ALTER TABLE x ENABLE RLS; POLICY USING (tenant_id = current_setting('app.tenant_id')::uuid)`.
    App connects as a non-owner role; each request does `SET LOCAL app.tenant_id = <jwt tenant claim>` in its transaction.
 2. **Vector store:** every point carries `tenant_id` + `course_id` payload; the retriever API *cannot be called without*
-   a `tenant_id` filter and an explicit `course_id IN (user's enrolled courses)` filter (wrapper rejects it otherwise).
+   a `tenant_id` and a single `course_id` filter (wrapper rejects it otherwise).
    Qdrant payload index on both fields.
-3. **Cache:** key namespace `t:{tenant_id}:...` so a lookup can never cross tenants by construction. Course-level access
-   is checked on hit (see section 3a).
+3. **Cache:** key namespace `t:{tenant_id}:c:{course_id}:...` so a lookup can never cross tenants or courses by construction.
 
-### 3a. Consequence of cross-course retrieval (D1)
-Because one answer may cite several courses, tenant isolation alone is not enough: **course entitlement** matters too.
-- Retrieval filter = the user's *entitlement set* (enrolled course ids), computed per request from `enrollment` (cached briefly in Redis, invalidated on enrollment change).
-- A cached answer stores `source_course_ids[]`. On a cache hit we serve it only if `source_course_ids ⊆ user's entitlement set`; otherwise treat as a miss.
-  This prevents a student from seeing content from a course they are not enrolled in via someone else's cached answer.
-- Trade-off: lower cache hit rate for students with different enrollments, in exchange for correctness. We will measure it (Stage 5).
-- Ranking: retrieval across many courses can surface the wrong course; the retriever returns the course title with each chunk and the answer must cite it. Optional later: a "which course?" clarifying question when scores are close.
+### 3a. Course scoping (D1)
+Each request is for exactly one course. The API checks the user is enrolled in `course_id` (an `enrollment` lookup, cached briefly in Redis)
+before anything else; the same `course_id` then drives the vector filter and the cache key. No entitlement sets or per-hit checks are needed.
+Future option (not built): cross-course search would need an entitlement-set filter and cache hits verified against it. Skipped to keep v1 simple.
 
 **Mandatory test:** two tenants with identical documents; assert a tenant-A user can never retrieve, cache-hit or read tenant-B data
 via API, vector search or cache (we add this as an automated test in the first coding stage).
@@ -97,10 +93,9 @@ Versioned collection name lets us swap embedding models by building a new collec
 ## 8. Decisions (resolved)
 | # | Question | Decision | Consequence |
 |---|---|---|---|
-| D1 | Retrieval scope | Across all of the user's enrolled courses | Entitlement-set filter; cache hits checked against entitlements (3a) |
+| D1 | Retrieval scope | One course per conversation/question (cross-course deferred) | Simple filter and cache key; user picks a course in the UI |
 | D2 | Raw chat content | Keep for evaluation, opt-in per tenant, short TTL, separate table | `message_raw`, restricted role, purge job |
 | D3 | Primary isolation | Shared DB + `tenant_id` + Postgres RLS | Three-layer isolation, mandatory leak tests |
 
 ## 9. Open questions for you
 1. Should instructors/tutors be able to read raw chats of their own course's students for escalation, or only the tutor on a specific ticket?
-2. Should a student be able to scope a question to one course explicitly (a filter chip in the UI), in addition to the default "all my courses"?
