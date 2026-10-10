@@ -97,5 +97,4 @@ Versioned collection name lets us swap embedding models by building a new collec
 | D2 | Raw chat content | Keep for evaluation, opt-in per tenant, short TTL, separate table | `message_raw`, restricted role, purge job |
 | D3 | Primary isolation | Shared DB + `tenant_id` + Postgres RLS | Three-layer isolation, mandatory leak tests |
 
-## 9. Open questions for you
-1. Should instructors/tutors be able to read raw chats of their own course's students for escalation, or only the tutor on a specific ticket?
+| D4 | Who reads raw chats / messages | Only the tutor assigned to a specific `escalation_ticket`, and only that conversation | RLS policy on `message`/`message_raw` joins to `escalation_ticket.assigned_tutor_id`; every read is audit-logged |
