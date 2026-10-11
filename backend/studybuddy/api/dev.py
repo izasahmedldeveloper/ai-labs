@@ -1,4 +1,5 @@
-"""Local demo app: the real HTTP/SSE layer on top of the fake pipeline stages.
+"""Local demo app: the real HTTP/SSE layer and real guardrails (LLD 08) on top of the fake cache, router,
+retriever, model and escalation stages.
 
     cd backend
     uvicorn studybuddy.api.dev:app --reload
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import os
 
+from ..guardrails import RuleInputGuardrails, RuleOutputGuardrails
 from ..pipeline import Identity, Orchestrator, PipelineConfig
 from ..pipeline import fakes
 from .app import create_app
@@ -27,9 +29,9 @@ async def allow_all_enrollment(identity: Identity, course_id: str) -> bool:
 
 def build_dev_orchestrator() -> Orchestrator:
     return Orchestrator(
-        guardrails=fakes.FakeGuardrails(), cache=fakes.FakeCache(), router=fakes.FakeRouter(),
+        guardrails=RuleInputGuardrails(), cache=fakes.FakeCache(), router=fakes.FakeRouter(),
         retriever=fakes.FakeRetriever(), generator=fakes.FakeGenerator(token_delay=0.05),
-        output_guardrails=fakes.FakeOutputGuardrails(), escalation=fakes.FakeEscalation(),
+        output_guardrails=RuleOutputGuardrails(), escalation=fakes.FakeEscalation(),
         config=PipelineConfig(),
     )
 

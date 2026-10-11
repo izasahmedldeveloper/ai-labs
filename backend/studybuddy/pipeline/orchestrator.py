@@ -140,6 +140,7 @@ class Orchestrator:
             await self._cancel(cache_task)
             raise
         ctx.guardrail_action = guard.action.value
+        ctx.policy_version = getattr(self.guardrails, "policy_version", None)
         if guard.action == GuardAction.BLOCK:
             await self._cancel(cache_task)
             raise Refused("blocked", BLOCKED_MESSAGE)

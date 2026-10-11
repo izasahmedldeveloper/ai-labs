@@ -47,6 +47,7 @@ class RequestContext:
     # --- results so far: each stage writes its own findings, later stages read them ---
     original_question: str | None = None
     guardrail_action: str | None = None
+    policy_version: str | None = None  # guardrail policy in force; stamped on messages and cache entries (LLD 06 s6)
     cache_result: str | None = None  # hit | miss | skipped
     route: str | None = None
     route_reason: str | None = None
