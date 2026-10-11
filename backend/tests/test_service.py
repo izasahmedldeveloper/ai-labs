@@ -44,6 +44,18 @@ class SettingsTests(unittest.TestCase):
             asyncio.run(create_service(s, jwks=StaticJwks([JWK])))   # no model key and no fake flag: refuse before connecting
 
 
+class TenantMapSettingTests(unittest.TestCase):
+    base = {**{f"STUDYBUDDY_DSN_{r}": "x" for r in ("APP", "AUTH", "WORKER", "RELAY")}, "STUDYBUDDY_JWT_ISSUER": "i", "STUDYBUDDY_JWT_AUDIENCE": "a"}
+
+    def test_parsed_and_malformed_rejected(self):
+        s = Settings.from_env({**self.base, "STUDYBUDDY_TENANT_MAP": "dir-1=t-1, dir-2=t-2"})
+        self.assertEqual(dict(s.tenant_map), {"dir-1": "t-1", "dir-2": "t-2"})
+        self.assertEqual(dict(Settings.from_env(self.base).tenant_map), {})
+        for bad in ("dir-1", "=t", "dir-1="):
+            with self.assertRaises(ConfigError):
+                Settings.from_env({**self.base, "STUDYBUDDY_TENANT_MAP": bad})
+
+
 class ServiceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

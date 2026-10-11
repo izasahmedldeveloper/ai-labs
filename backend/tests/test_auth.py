@@ -168,6 +168,37 @@ class RoleMappingTests(unittest.TestCase):
         self.assertEqual(initial_role([None, 5, "x"]), "student")
 
 
+class DirectoryMapTests(unittest.TestCase):
+    """Entra: the tenant comes from the server-side map of directory id (tid) to tenant, never from a token claim."""
+    TID = "11111111-2222-3333-4444-555555555555"
+
+    def setUp(self):
+        self.directory = InMemoryUserDirectory({TENANT_A, TENANT_B})
+        self.seen = []
+        self.rejects = []
+        auth = BearerAuth(verifier(), self.directory, tenant_map={self.TID.upper(): TENANT_A}, on_reject=self.rejects.append)
+
+        async def enrolled(identity, course_id):
+            self.seen.append(identity)
+            return True
+        self.client = TestClient(create_app(make_orch(), authenticate=auth, check_enrollment=enrolled))
+
+    def post(self, tok):
+        return self.client.post("/chat", json=body(), headers={"authorization": f"Bearer {tok}"})
+
+    def test_mapped_directory_works_without_a_tenant_claim_and_ignores_a_forged_one(self):
+        self.assertEqual(self.post(token(tenant_id=None, tid=self.TID)).status_code, 200)
+        self.assertEqual(self.seen[-1].tenant_id, TENANT_A)
+        self.assertEqual(self.post(token(tenant_id=TENANT_B, tid=self.TID.upper())).status_code, 200)
+        self.assertEqual(self.seen[-1].tenant_id, TENANT_A)            # the claim naming tenant B is ignored
+
+    def test_unmapped_missing_or_odd_tid_is_rejected(self):
+        for tid in ("99999999-2222-3333-4444-555555555555", None, 5, ["x"]):
+            r = self.post(token(tenant_id=TENANT_A, tid=tid))
+            self.assertEqual(r.status_code, 401, tid)
+        self.assertEqual(self.seen, [])
+
+
 class BearerApiTests(unittest.TestCase):
     def setUp(self):
         self.directory = InMemoryUserDirectory({TENANT_A, TENANT_B})

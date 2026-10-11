@@ -56,6 +56,7 @@ class Settings:
     blob_connection_string: str | None = None   # Azurite or a storage account key
     blob_account_url: str | None = None         # https://<account>.blob.core.windows.net (managed identity)
     blob_container: str = "documents"
+    tenant_map: Mapping[str, str] = field(default_factory=dict)   # Entra directory id -> StudyBuddy tenant id
     jwt_max_lifetime_s: int = 900               # Microsoft Entra access tokens live 60-90 minutes: set 5400
 
     @classmethod
@@ -75,7 +76,18 @@ class Settings:
             blob_connection_string=env.get("STUDYBUDDY_BLOB_CONNECTION_STRING") or None,
             blob_account_url=env.get("STUDYBUDDY_BLOB_ACCOUNT_URL") or None,
             blob_container=env.get("STUDYBUDDY_BLOB_CONTAINER") or "documents",
+            tenant_map=_parse_map(env.get("STUDYBUDDY_TENANT_MAP", "")),
             jwt_max_lifetime_s=int(env.get("STUDYBUDDY_JWT_MAX_LIFETIME_S") or 900))
+
+
+def _parse_map(text: str) -> dict[str, str]:
+    out = {}
+    for part in (p.strip() for p in text.split(",") if p.strip()):
+        k, sep, v = part.partition("=")
+        if not sep or not k.strip() or not v.strip():
+            raise ConfigError("STUDYBUDDY_TENANT_MAP must look like <directory-id>=<tenant-uuid>,...")
+        out[k.strip()] = v.strip()
+    return out
 
 
 class LogChannel:
@@ -195,6 +207,7 @@ async def create_service(settings: Settings, *, jwks=None, http_client=None, clo
     verifier = JwtVerifier(issuer=settings.jwt_issuer, audience=settings.jwt_audience, jwks=jwks,
                          max_lifetime_s=settings.jwt_max_lifetime_s)
     auth = BearerAuth(verifier, PgUserDirectory(dbs["auth"]), InMemoryDenylist(),
+                      tenant_map=dict(settings.tenant_map) or None,
                       on_reject=lambda reason: logger.log("auth.rejected", reason=reason, level="warning"))
     enrollment = EnrollmentRepo(dbs["app"])
     app = create_app(orchestrator, authenticate=auth, check_enrollment=enrollment.is_enrolled, load_conversation=conversations.load)

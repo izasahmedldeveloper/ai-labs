@@ -26,7 +26,11 @@ def _unauthorized() -> HTTPException:
 
 class BearerAuth:
     def __init__(self, verifier, directory, denylist: Denylist | None = None, *, on_reject: Callable[[str], None] | None = None,
-                 budget_for_tenant: Callable[[str], BudgetState] | None = None):
+                 budget_for_tenant: Callable[[str], BudgetState] | None = None,
+                 tenant_map: dict[str, str] | None = None):
+        # tenant_map: identity-provider directory id (Entra `tid`) -> StudyBuddy tenant id. When set, the tenant comes ONLY
+        # from this server-side map (an unmapped directory is rejected) and the `tenant_id` claim is ignored.
+        self.tenant_map = {k.lower(): str(uuid.UUID(v)) for k, v in (tenant_map or {}).items()} or None
         self.verifier, self.directory, self.denylist = verifier, directory, denylist
         self.on_reject, self.budget_for_tenant = on_reject or (lambda reason: None), budget_for_tenant
 
@@ -36,6 +40,9 @@ class BearerAuth:
             raise AuthError("missing or malformed bearer header")
         claims = await self.verifier.verify(m.group(1))
         tenant = claims.get("tenant_id")
+        if self.tenant_map is not None:
+            tid = claims.get("tid")
+            tenant = self.tenant_map.get(tid.lower()) if isinstance(tid, str) else None
         try:
             tenant = str(uuid.UUID(tenant)) if isinstance(tenant, str) else None
         except ValueError:
