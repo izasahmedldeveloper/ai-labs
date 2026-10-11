@@ -59,6 +59,9 @@ class InMemoryChunkStore:
         for chunk in chunks:
             self.set_current(chunk.tenant_id, chunk.course_id, chunk.document_id, chunk.version_id)
 
+    def current_version(self, tenant_id: str, course_id: str, document_id: str) -> str | None:
+        return self._current.get((tenant_id, course_id, document_id))
+
     def remove_document(self, tenant_id: str, course_id: str, document_id: str) -> None:
         self.set_current(tenant_id, course_id, document_id, None)  # chunks stay until cleanup; never served
 

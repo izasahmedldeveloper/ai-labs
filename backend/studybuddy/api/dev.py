@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 
+from ..cache import InMemoryCacheStore, SemanticCache
 from ..guardrails import Policy, RuleInputGuardrails, RuleOutputGuardrails
 from ..guardrails.policy import ORDINAL_CITATION
 from ..modelgateway import (BudgetTracker, GatewayGenerator, InMemoryUsageLedger, ModelGateway, PromptBuilder)
@@ -50,15 +51,27 @@ async def allow_all_enrollment(identity: Identity, course_id: str) -> bool:
     return True
 
 
-def build_dev_retriever() -> HybridRetriever:
-    embedder = HashingEmbedder(synonyms=DEMO_SYNONYMS)
+def build_dev_retriever(embedder: HashingEmbedder | None = None) -> HybridRetriever:
+    embedder = embedder or HashingEmbedder(synonyms=DEMO_SYNONYMS)
     store = InMemoryChunkStore()
     chunks = [StoredChunk(f"t1-c1-{short}", text, "t1", "c1", doc, "v1", ordinal=ordinal, page=ordinal + 1,
                           heading="Course notes") for short, doc, ordinal, text in DEMO_NOTES]
     store.add(chunks, embedder.embed_sync([c.text for c in chunks]))
     for chunk in chunks:
         store.set_current(chunk.tenant_id, chunk.course_id, chunk.document_id, chunk.version_id)
-    return HybridRetriever(store, embedder, reranker=OverlapReranker(DEMO_SYNONYMS))
+    retriever = HybridRetriever(store, embedder, reranker=OverlapReranker(DEMO_SYNONYMS))
+    retriever.chunk_store = store  # the cache reads current document versions from here
+    return retriever
+
+
+class StoreVersions:
+    """Current document versions straight from the (in-memory) chunk store; the real one reads Postgres (LLD 01)."""
+
+    def __init__(self, store: InMemoryChunkStore):
+        self._store = store
+
+    async def current_version(self, tenant_id: str, course_id: str, document_id: str) -> str | None:
+        return self._store.current_version(tenant_id, course_id, document_id)
 
 
 def build_dev_gateway(openai_key: str | None, anthropic_key: str | None) -> ModelGateway:
@@ -94,9 +107,14 @@ def build_dev_orchestrator() -> Orchestrator:
         output = RuleOutputGuardrails(Policy(citation_pattern=ORDINAL_CITATION, citation_ids="ordinal"))
     else:
         generator, config, output = fakes.FakeGenerator(token_delay=0.05), PipelineConfig(), RuleOutputGuardrails()
+    embedder = HashingEmbedder(synonyms=DEMO_SYNONYMS)
+    retriever = build_dev_retriever(embedder)
+    guardrails = RuleInputGuardrails()
+    cache = SemanticCache(InMemoryCacheStore(), embedder, StoreVersions(retriever.chunk_store),
+                          policy_version=lambda: guardrails.policy_version)
     return Orchestrator(
-        guardrails=RuleInputGuardrails(), cache=fakes.FakeCache(), router=fakes.FakeRouter(),
-        retriever=build_dev_retriever(), generator=generator,
+        guardrails=guardrails, cache=cache, router=fakes.FakeRouter(),
+        retriever=retriever, generator=generator,
         output_guardrails=output, escalation=fakes.FakeEscalation(), config=config,
     )
 

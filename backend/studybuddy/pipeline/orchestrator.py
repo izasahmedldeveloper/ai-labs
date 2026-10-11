@@ -102,6 +102,9 @@ class Orchestrator:
             ctx.outcome = "cancelled"
         finally:
             buf.close()
+            abandon = getattr(self.cache, "abandon", None)  # release a cache single-flight marker (LLD 06 s7)
+            if abandon is not None:
+                abandon(ctx)
             self._limiter.release(ctx.identity)
             if self.on_complete is not None:
                 self.on_complete(ctx)
@@ -147,6 +150,7 @@ class Orchestrator:
         if guard.action == GuardAction.REDACT and guard.text is not None:
             await self._cancel(cache_task)
             ctx.question = guard.text
+            ctx.question_embedding = None  # a cancelled lookup may have embedded the unredacted text
             cache_task = asyncio.create_task(run_stage(
                 ctx, "cache", False, cfg.cache_timeout_s, lambda: self.cache.lookup(ctx)))
         hit: CacheHit | None = await cache_task
