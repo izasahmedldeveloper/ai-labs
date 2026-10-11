@@ -11,12 +11,13 @@
 | Real stage: **semantic cache** (tenant+course+embedding-model namespace, similarity threshold with a borderline second check, numbers/negations/names must agree, read-time version check, policy-version stamp, TTLs, exclusions, stampede marker, CDC consumer, evict/purge) | LLD 06 | **Logic done, 27 tests**, running against an in-memory store and the demo embedder. No Redis, Kafka or real embedding model: see "Semantic cache limits" below |
 | Real stage: **router** (tier 1 rules with safety first, tier 2 intent classifier plug-in with a lexicon baseline and a trainable centroid model over the shared embedding, tier 3 complexity score, shadow mode, evaluation harness with sensitive-recall target) | LLD 07 | **Logic done, 30 tests**, rules and thresholds are placeholders, **no trained model, no real traffic**, **cascade not built**: see "Router limits" below |
 | **Qdrant store** (`ChunkStore` on a real Qdrant: dense + BM25 sparse vectors, tenant/course/status/flagged filters, publish with no gap, idempotent writes, client-side filter backstop, current-version lookup for the cache) | LLD 05 D3, LLD 04 s4, LLD 01 s3 | **Logic done, 25 tests** on qdrant-client's in-process local mode. **Never run against a Qdrant server here** (none available): run the same tests with `QDRANT_URL` set. See "Qdrant store limits" |
-| Real stages: cache, router, model gateway | LLD 06, 07, 09 | Not started; each replaces a fake in `pipeline/fakes.py` |
-| Data model + RLS migrations | LLD 01 | Not started |
+| **Data model + row-level security** (shared DB, tenant_id on every table, composite FKs, UUIDv7, ENABLE+FORCE RLS, least-privilege roles, audited tutor read, append-only audit/messages, immutable document versions, migration runner, scoped-transaction access layer, repos wired into the API) | LLD 01 | **Done, 52 tests** against a real PostgreSQL as non-superuser roles. Needs Postgres to run them (skipped otherwise). See "Data model & RLS limits" |
 | Auth (Keycloak JWT verification) | LLD 02 | Not started |
 | Ingestion worker + Kafka | LLD 04 | Not started |
 
 ## Run the tests
+Database tests (`tests/test_rls.py`, `tests/test_db_repos.py`) need PostgreSQL 14+ server binaries on the machine (a private throwaway cluster is started) or `TEST_DATABASE_URL` pointing at a database where the roles in `studybuddy/db/sql/000_bootstrap_roles.sql` exist. Without either they are skipped. Install `pip install -e .[db]`.
+
 ```bash
 cd backend
 python3 -m unittest discover -s tests -v      # pipeline + guardrails + retriever tests, no dependencies (API tests are skipped)
@@ -78,6 +79,9 @@ The demo course (`t1` / `c1`) has five tiny notes. Try "How do I cancel my cours
 | `studybuddy/router/classifiers.py` | Tier 2: lexicon baseline and trainable centroid classifier over the existing embedding | LLD 07 s4 |
 | `studybuddy/router/complexity.py`, `router.py` | Tier 3 score (cheap vs strong), the stage with its failure fallbacks, and `ShadowRouter` | LLD 07 s5, s6, D6 |
 | `studybuddy/router/evaluation.py` | Per-route precision/recall and the 98% sensitive-recall check | LLD 07 s9 |
+| `studybuddy/db/sql/000_bootstrap_roles.sql`, `001_schema.sql`, `002_rls.sql` | Roles (none superuser/BYPASSRLS), tables with tenant_id and composite FKs, RLS policies, triggers, audited `tutor_read_ticket()` | LLD 01 |
+| `studybuddy/db/migrate.py`, `session.py`, `repos.py` | Checksummed migrations; `Database.scoped()` sets tenant/user/role per transaction (fails closed); enrollment, conversation, audit and tutor repos | LLD 01 |
+| `tests/pg_harness.py`, `tests/test_rls.py`, `tests/test_db_repos.py` | Private Postgres for tests; cross-tenant, privacy, role, audit, retention and migration tests | LLD 01 s3 |
 | `tests/test_router.py` | Rules, classifier, complexity, latency, safety without a classifier, shadow mode, evaluation, end to end | LLD 07 s10 |
 | `studybuddy/retrieval/qdrant_store.py` | Qdrant `ChunkStore`: collection and payload indexes, BM25 sparse encoder, upsert / publish_version / remove / flag, filtered dense, sparse and neighbour search | LLD 05 D3, LLD 04 s4, LLD 01 s3 |
 | `studybuddy/api/dev_seed_qdrant.py` | One-off script that loads the demo notes into a Qdrant server for the dev app | — |
@@ -149,3 +153,8 @@ The demo course (`t1` / `c1`) has five tiny notes. Try "How do I cancel my cours
 - Identity comes from gateway headers (`x-tenant-id`, `x-user-id`, `x-user-role`, `x-budget-state`, optional `x-gateway-secret`). When LLD 02 lands, pass a JWT-verifying `authenticate=` instead; nothing else changes.
 - Idempotency and concurrency state is in memory (single process). Move it to Redis (LLD 03 §7) before running more than one API instance.
 - The API tests need `pip install -e ".[api,dev]"` (network access to PyPI is now available in this environment).
+
+## Data model & RLS limits
+- Tests need a real PostgreSQL. The harness uses trust auth on a unix socket: test-only, never a deployment pattern. Role passwords are set via `bootstrap(conn, passwords=...)` and must come from your secret store.
+- RLS protects against missing filters, not against code that holds a connection: such code can still run `SET app.tenant_id`. Keep raw connections inside `Database.scoped()` and review any new use of the pool.
+- Instructors have no roster access and there are no analytics views yet. `message`, `audit_log`, `usage_ledger` are not partitioned. There is no relay role for the outbox (a cross-tenant scan needs its own reviewed design). The usage ledger is not yet persisted to Postgres. Retention/purge jobs are not built.

@@ -6,6 +6,7 @@ Stages are injected, so tests use fakes and production wires real services.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import re
 from typing import AsyncIterator, Callable
 
@@ -107,7 +108,12 @@ class Orchestrator:
                 abandon(ctx)
             self._limiter.release(ctx.identity)
             if self.on_complete is not None:
-                self.on_complete(ctx)
+                try:  # persistence/metrics hook: sync or async, and a failure here must never touch the answer
+                    result = self.on_complete(ctx)
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception:
+                    pass
             asyncio.get_running_loop().call_later(self.cfg.idempotency_ttl_s, self._streams.pop, key, None)
 
     # ------------------------------------------------------------------ the pipeline

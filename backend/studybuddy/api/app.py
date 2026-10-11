@@ -66,6 +66,8 @@ def create_app(
     enrollment_timeout_s: float = 0.5,
     busy_retry_after_s: int = 3,
     budget_state: Callable[[str, str], BudgetState] | None = None,
+    load_conversation: Callable[[Identity, str], Awaitable] | None = None,
+    conversation_timeout_s: float = 0.5,
 ) -> FastAPI:
     """Build the app around an orchestrator.
 
@@ -93,8 +95,20 @@ def create_app(
         if not enrolled:
             raise HTTPException(status_code=403, detail=NO_ACCESS_MESSAGE)
 
+        # Conversation id and recent history come from the server-side store, never from the client (LLD 01, LLD 03).
+        # Optional: if the store is slow or down the question is answered without history rather than not at all.
+        conversation_id, history = None, ()
+        if load_conversation is not None:
+            try:
+                state = await asyncio.wait_for(load_conversation(user.identity, body.course_id), conversation_timeout_s)
+                conversation_id, history = state.conversation_id, tuple(state.history)
+            except Exception:
+                pass
+
         ctx = RequestContext(
             identity=user.identity,
+            conversation_id=conversation_id,
+            history=history,
             course_id=body.course_id,
             question=body.question,
             request_id=body.request_id,

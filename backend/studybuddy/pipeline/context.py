@@ -42,6 +42,7 @@ class RequestContext:
     request_id: str
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     budget_state: BudgetState = BudgetState.OK
+    conversation_id: str | None = None  # set by the API from the conversation store (LLD 01); persistence key only
     started_at: float = field(default_factory=time.monotonic)
 
     # Recent messages of this conversation (oldest first), loaded SERVER-side from the conversation store

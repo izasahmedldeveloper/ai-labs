@@ -9,7 +9,8 @@ dependencies = []  # core pipeline is stdlib-only; API layer adds fastapi and uv
 api = ["fastapi", "uvicorn[standard]", "pydantic>=2"]
 qdrant = ["qdrant-client>=1.10"]
 providers = ["httpx"]
-dev = ["pytest", "pytest-asyncio", "httpx", "qdrant-client>=1.10"]
+db = ["psycopg[binary]>=3.2", "psycopg_pool>=3.2"]
+dev = ["pytest", "pytest-asyncio", "httpx", "qdrant-client>=1.10", "psycopg[binary]>=3.2", "psycopg_pool>=3.2"]
 
 [tool.setuptools.packages.find]
 include = ["studybuddy*"]
