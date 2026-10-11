@@ -44,8 +44,17 @@ class RequestContext:
     budget_state: BudgetState = BudgetState.OK
     started_at: float = field(default_factory=time.monotonic)
 
+    # Recent messages of this conversation (oldest first), loaded SERVER-side from the conversation store
+    # (LLD 01), never taken from the client. Empty for a first message; used to rewrite follow-up questions.
+    history: tuple[str, ...] = ()
+
     # --- results so far: each stage writes its own findings, later stages read them ---
     original_question: str | None = None
+    rewritten_query: str | None = None  # standalone form of a follow-up (LLD 05 s3); logged next to the original
+    # Embedding of `rewritten_query or question`, computed once and shared by cache and retriever (LLD 03 s6).
+    question_embedding: tuple[float, ...] | None = None
+    # Internal retrieval record (candidate ids and scores, rerank on/off). NOT part of `usage`, which is sent to the client.
+    retrieval_trace: dict = field(default_factory=dict)
     guardrail_action: str | None = None
     policy_version: str | None = None  # guardrail policy in force; stamped on messages and cache entries (LLD 06 s6)
     cache_result: str | None = None  # hit | miss | skipped
