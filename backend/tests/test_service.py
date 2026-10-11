@@ -113,3 +113,73 @@ class ServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _azurite():
+    import shutil, socket, subprocess, tempfile
+    exe = os.environ.get("AZURITE_BIN") or shutil.which("azurite-blob")
+    if not exe:
+        return None
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    d = tempfile.mkdtemp()
+    proc = subprocess.Popen([exe, "--silent", "--skipApiVersionCheck", "--blobHost", "127.0.0.1", "--blobPort", str(port), "--location", d],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(50):
+        try:
+            socket.create_connection(("127.0.0.1", port), 0.2).close()
+            break
+        except OSError:
+            time.sleep(0.1)
+    conn = ("DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;"
+            f"BlobEndpoint=http://127.0.0.1:{port}/devstoreaccount1;")
+    return proc, conn
+
+
+class AzureBlobTests(ServiceTests):
+    """The same end-to-end flow, with uploads going to a (local Azurite) Azure Blob container."""
+
+    test_background_loops_start_and_stop_cleanly = None
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import azure.storage.blob.aio  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("azure-storage-blob not installed")
+        started = _azurite()
+        if not started:
+            raise unittest.SkipTest("azurite-blob not available")
+        cls.proc, cls.conn = started
+        super().setUpClass()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.terminate()
+
+    def run_service(self, fn):
+        async def main():
+            s = settings([self.A["id"]], STUDYBUDDY_BLOB_CONNECTION_STRING=self.conn, STUDYBUDDY_BLOB_CONTAINER="docs-test")
+            svc = await create_service(s, jwks=StaticJwks([JWK]))
+            try:
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=svc.app), base_url="http://t") as client:
+                    out = await fn(svc, client)
+                    names = [b.name async for b in svc.closers[0].container.list_blobs()]
+                    self.assertTrue(any(n.endswith("notes.md") or self.A["id"] in n for n in names), names)
+                    return out
+            finally:
+                await svc.stop()
+        return asyncio.run(main())
+
+    def test_store_contract(self):
+        from studybuddy.ingestion import AzureBlobObjectStore
+
+        async def main():
+            st = AzureBlobObjectStore.from_connection_string(self.conn, "contract")
+            await st.ensure_container(); await st.ensure_container()      # idempotent
+            await st.put("t/c/d/v/file.bin", b"\x00\x01data"); await st.put("t/c/d/v/file.bin", b"second")
+            self.assertEqual(await st.get("t/c/d/v/file.bin"), b"second")
+            await st.delete("t/c/d/v/file.bin"); await st.delete("t/c/d/v/file.bin")   # delete twice is fine
+            with self.assertRaises(FileNotFoundError):
+                await st.get("t/c/d/v/file.bin")
+            await st.close()
+        asyncio.run(main())

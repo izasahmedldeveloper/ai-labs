@@ -21,7 +21,7 @@ from .db import ConversationRepo, Database, EnrollmentRepo
 from .escalation import FaqService, Notifier, PgEscalation, SlaMonitor, TicketService
 from .guardrails import Policy, RuleInputGuardrails, RuleOutputGuardrails
 from .guardrails.policy import ORDINAL_CITATION
-from .ingestion import (CleanupJob, DocumentService, IngestionConsumer, IngestionWorker, InMemoryBroker, InMemoryObjectStore, MemoryIndex,
+from .ingestion import (AzureBlobObjectStore, CleanupJob, DocumentService, IngestionConsumer, IngestionWorker, InMemoryBroker, InMemoryObjectStore, MemoryIndex,
                         OutboxRelay, PgVersionRepo)
 from .observability import (AlertEngine, EventSink, JsonLogger, MemoryExporter, Registry, RequestObserver, Telemetry, add_metrics_routes,
                             chain)
@@ -53,6 +53,10 @@ class Settings:
     alert_every_s: float = 30.0
     worker_interval_s: float = 1.0
     max_traces: int = 500
+    blob_connection_string: str | None = None   # Azurite or a storage account key
+    blob_account_url: str | None = None         # https://<account>.blob.core.windows.net (managed identity)
+    blob_container: str = "documents"
+    jwt_max_lifetime_s: int = 900               # Microsoft Entra access tokens live 60-90 minutes: set 5400
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -67,7 +71,11 @@ class Settings:
             tenants=tuple(t.strip() for t in env.get("STUDYBUDDY_TENANTS", "").split(",") if t.strip()),
             scrape_token=env.get("STUDYBUDDY_SCRAPE_TOKEN") or None,
             openai_key=env.get("OPENAI_API_KEY") or None, anthropic_key=env.get("ANTHROPIC_API_KEY") or None,
-            fake_model=env.get("STUDYBUDDY_FAKE_MODEL") == "1")
+            fake_model=env.get("STUDYBUDDY_FAKE_MODEL") == "1",
+            blob_connection_string=env.get("STUDYBUDDY_BLOB_CONNECTION_STRING") or None,
+            blob_account_url=env.get("STUDYBUDDY_BLOB_ACCOUNT_URL") or None,
+            blob_container=env.get("STUDYBUDDY_BLOB_CONTAINER") or "documents",
+            jwt_max_lifetime_s=int(env.get("STUDYBUDDY_JWT_MAX_LIFETIME_S") or 900))
 
 
 class LogChannel:
@@ -93,6 +101,7 @@ class Service:
     errors: list = field(default_factory=list)
     _stop: asyncio.Event = field(default_factory=asyncio.Event)
     _tasks: list = field(default_factory=list)
+    closers: list = field(default_factory=list)
 
     def start(self) -> None:
         """Start the worker loop and the alert loop in the background."""
@@ -115,6 +124,8 @@ class Service:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         for db in self.dbs.values():
             await db.close()
+        for c in self.closers:
+            await c.close()
 
 
 def _generator(settings: Settings):
@@ -153,7 +164,22 @@ async def create_service(settings: Settings, *, jwks=None, http_client=None, clo
     observer = RequestObserver(registry, logger=logger, exporter=exporter, telemetry=telemetry)
 
     embedder = HashingEmbedder()   # PLACEHOLDER embedder/reranker until a real embedding service exists
-    objects, index, broker = InMemoryObjectStore(), MemoryIndex(), InMemoryBroker()
+    closers: list = []
+    if settings.blob_connection_string or settings.blob_account_url:
+        objects = (AzureBlobObjectStore.from_connection_string(settings.blob_connection_string, settings.blob_container)
+                   if settings.blob_connection_string else
+                   AzureBlobObjectStore.from_account_url(settings.blob_account_url, settings.blob_container))
+        closers.append(objects)
+        try:
+            await objects.ensure_container()
+        except Exception:
+            for d in dbs.values():
+                await d.close()
+            await objects.close()
+            raise
+    else:
+        objects = InMemoryObjectStore()
+    index, broker = MemoryIndex(), InMemoryBroker()
     guardrails = RuleInputGuardrails(on_event=sink)
     output.on_event = sink
     retriever = HybridRetriever(index.store, embedder, reranker=OverlapReranker({}), on_event=sink)
@@ -166,7 +192,8 @@ async def create_service(settings: Settings, *, jwks=None, http_client=None, clo
         output_guardrails=output, escalation=escalation, config=pipeline_cfg,
         on_complete=chain(observer.on_complete, conversations.record_turn))
 
-    verifier = JwtVerifier(issuer=settings.jwt_issuer, audience=settings.jwt_audience, jwks=jwks)
+    verifier = JwtVerifier(issuer=settings.jwt_issuer, audience=settings.jwt_audience, jwks=jwks,
+                         max_lifetime_s=settings.jwt_max_lifetime_s)
     auth = BearerAuth(verifier, PgUserDirectory(dbs["auth"]), InMemoryDenylist(),
                       on_reject=lambda reason: logger.log("auth.rejected", reason=reason, level="warning"))
     enrollment = EnrollmentRepo(dbs["app"])
@@ -203,7 +230,7 @@ async def create_service(settings: Settings, *, jwks=None, http_client=None, clo
                           cleanup=CleanupJob(dbs["worker"], index, objects), tenants=tenant_ids, on_error=on_error)
     alerts = AlertEngine(registry, telemetry, notify=lambda a, state: logger.log(
         "alert", level="error" if state == "firing" else "info", alert=a.name, severity=a.severity, status=state, value=a.value))
-    return Service(app, runner, alerts, registry, exporter, dbs, settings, errors)
+    return Service(app, runner, alerts, registry, exporter, dbs, settings, errors, closers=closers)
 
 
 class _StoreVersions:

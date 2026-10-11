@@ -225,7 +225,8 @@ The demo course (`t1` / `c1`) has five tiny notes. Try "How do I cancel my cours
 
 ## Service limits
 - Never run against a live Postgres, IdP or model API outside the tests. The tests use the private Postgres, a static key set and the fake model; `python -m studybuddy.service` itself has not been started as a process.
-- Still in memory in the service: object store, message broker, search index, semantic cache, JWT denylist, usage ledger. A restart loses the search index (documents must be re-ingested) and in-flight events. A real object store, Qdrant index, broker and Redis are the next replacements; each already has an interface.
+- Uploads go to Azure Blob Storage when `STUDYBUDDY_BLOB_ACCOUNT_URL` or `STUDYBUDDY_BLOB_CONNECTION_STRING` is set (tested against the Azurite emulator, never a real storage account); otherwise memory. Azure resources to create: `docs/azure-infrastructure.md`.
+- Still in memory in the service: message broker, search index, semantic cache, JWT denylist, usage ledger. A restart loses the search index (documents must be re-ingested) and in-flight events. A real object store, Qdrant index, broker and Redis are the next replacements; each already has an interface.
 - The embedder and reranker are the word-hashing placeholders, not a real embedding model, so retrieval quality is demo grade.
 - A model key is required; `STUDYBUDDY_FAKE_MODEL=1` allows the canned model for demos. The key path reuses `build_dev_gateway` (importing `api/dev.py`, which builds the demo app as a side effect).
 - Tenants for the SLA and cleanup jobs come from `STUDYBUDDY_TENANTS`; new tenants need a restart. No admin routes, no budget state wiring, no CORS, no TLS or rate limit in front of it, no graceful drain of in-flight streams on shutdown.

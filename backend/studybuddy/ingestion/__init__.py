@@ -8,9 +8,10 @@ from .scan import AcceptAllScanner, injection_findings, scan_document
 from .service import AccessDenied, DocumentService, UploadResult
 from .storage import InMemoryObjectStore, MemoryIndex
 from .types import IngestionError, Limits, ParsedDocument, TemporaryError
+from .azure_blob import AzureBlobObjectStore
 from .worker import InMemoryEmbeddingCache, IngestionConsumer, IngestionWorker
 
-__all__ = ["InMemoryBroker", "ChunkConfig", "DraftChunk", "chunk_document", "CleanupJob", "parse", "sniff", "OutboxRelay",
+__all__ = ["AzureBlobObjectStore", "InMemoryBroker", "ChunkConfig", "DraftChunk", "chunk_document", "CleanupJob", "parse", "sniff", "OutboxRelay",
            "PgVersionRepo", "VersionRecord", "chunk_id", "AcceptAllScanner", "injection_findings", "scan_document",
            "AccessDenied", "DocumentService", "UploadResult", "InMemoryObjectStore", "MemoryIndex", "IngestionError", "Limits",
            "ParsedDocument", "TemporaryError", "InMemoryEmbeddingCache", "IngestionConsumer", "IngestionWorker"]
