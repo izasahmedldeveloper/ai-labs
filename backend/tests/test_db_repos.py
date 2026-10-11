@@ -128,5 +128,40 @@ class RepoTests(unittest.TestCase):
         self.run_db(go)
 
 
+class PgDirectoryTests(RepoTests):
+    def run_auth(self, fn):
+        async def main():
+            db = await Database.connect(pg_harness.dsn_for("sb_auth"), max_size=2)
+            try:
+                return await fn(db)
+            finally:
+                await db.close()
+        return asyncio.run(main())
+
+    def test_jit_provisioning_existing_user_unknown_tenant_and_isolation(self):
+        from studybuddy.auth import AuthError, PgUserDirectory
+
+        async def go(db):
+            d = PgUserDirectory(db)
+            existing = await d.resolve(self.A["id"], "sub-A-instr", ["student"])
+            self.assertEqual((existing.user_id, existing.role), (self.A["instr"], "instructor"))  # DB role wins over the token
+            new = await d.resolve(self.A["id"], "brand-new", ["instructor", "tenant_admin"])
+            self.assertEqual((new.role, new.status), ("instructor", "active"))
+            again = await d.resolve(self.A["id"], "brand-new", [])
+            self.assertEqual(again.user_id, new.user_id)                          # no duplicate row
+            other = await d.resolve(self.B["id"], "brand-new", [])
+            self.assertNotEqual(other.user_id, new.user_id)                        # same sub, other tenant: other user
+            admin_try = await d.resolve(self.A["id"], "wants-admin", ["tenant_admin"])
+            self.assertEqual(admin_try.role, "student")
+            with self.assertRaises(AuthError):
+                await d.resolve(__import__("uuid").uuid4().hex and str(__import__("uuid").uuid4()), "x", [])
+        self.run_auth(go)
+
+    test_enrollment = test_load_creates_then_reuses_conversation_and_returns_history_starting_with_user = None
+    test_record_turn_stores_redacted_text_and_history_round_trips = None
+    test_record_turn_without_conversation_id_is_a_no_op_and_foreign_conversation_is_refused = None
+    test_audit_and_tutor_read = test_scope_is_validated_and_does_not_leak_between_pooled_uses = None
+
+
 if __name__ == "__main__":
     unittest.main()

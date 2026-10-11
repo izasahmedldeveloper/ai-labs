@@ -12,7 +12,7 @@
 | Real stage: **router** (tier 1 rules with safety first, tier 2 intent classifier plug-in with a lexicon baseline and a trainable centroid model over the shared embedding, tier 3 complexity score, shadow mode, evaluation harness with sensitive-recall target) | LLD 07 | **Logic done, 30 tests**, rules and thresholds are placeholders, **no trained model, no real traffic**, **cascade not built**: see "Router limits" below |
 | **Qdrant store** (`ChunkStore` on a real Qdrant: dense + BM25 sparse vectors, tenant/course/status/flagged filters, publish with no gap, idempotent writes, client-side filter backstop, current-version lookup for the cache) | LLD 05 D3, LLD 04 s4, LLD 01 s3 | **Logic done, 25 tests** on qdrant-client's in-process local mode. **Never run against a Qdrant server here** (none available): run the same tests with `QDRANT_URL` set. See "Qdrant store limits" |
 | **Data model + row-level security** (shared DB, tenant_id on every table, composite FKs, UUIDv7, ENABLE+FORCE RLS, least-privilege roles, audited tutor read, append-only audit/messages, immutable document versions, migration runner, scoped-transaction access layer, repos wired into the API) | LLD 01 | **Done, 52 tests** against a real PostgreSQL as non-superuser roles. Needs Postgres to run them (skipped otherwise). See "Data model & RLS limits" |
-| Auth (Keycloak JWT verification) | LLD 02 | Not started |
+| **Auth** (Bearer JWT verification RS256/ES256 only, JWKS cache with throttled refresh and stale-if-error, tenant only from the verified token, JIT user provisioning with least-privilege role, denylist, deny-by-default `authorize()`, role gate on `/chat`) | LLD 02 | **Done, 20 tests** with generated keys and mock key servers. **Never run against a real Keycloak**: see "Auth limits" |
 | Ingestion worker + Kafka | LLD 04 | Not started |
 
 ## Run the tests
@@ -82,6 +82,10 @@ The demo course (`t1` / `c1`) has five tiny notes. Try "How do I cancel my cours
 | `studybuddy/db/sql/000_bootstrap_roles.sql`, `001_schema.sql`, `002_rls.sql` | Roles (none superuser/BYPASSRLS), tables with tenant_id and composite FKs, RLS policies, triggers, audited `tutor_read_ticket()` | LLD 01 |
 | `studybuddy/db/migrate.py`, `session.py`, `repos.py` | Checksummed migrations; `Database.scoped()` sets tenant/user/role per transaction (fails closed); enrollment, conversation, audit and tutor repos | LLD 01 |
 | `tests/pg_harness.py`, `tests/test_rls.py`, `tests/test_db_repos.py` | Private Postgres for tests; cross-tenant, privacy, role, audit, retention and migration tests | LLD 01 s3 |
+| `studybuddy/auth/verifier.py`, `jwks.py` | Allow-listed asymmetric algorithms checked before the key is used; iss/aud/exp/iat/sub required, 60 s leeway, lifetime cap; key cache, throttled refresh, stale-if-error | LLD 02 s2, s10 |
+| `studybuddy/auth/bearer.py`, `directory.py`, `denylist.py` | `Authorization: Bearer` authenticator for `create_app`: generic 401, 503 for our own outages, JIT provisioning as `sb_auth`, database owns role/status, instant revoke | LLD 02 s4, s8 |
+| `studybuddy/auth/policy.py` | `authorize(principal, action, resource, facts)`: role AND scope, deny by default, pure | LLD 02 s5 |
+| `tests/test_auth.py` | Expired/forged/wrong-aud/iss, alg none and HS256 confusion, tenant tampering, unenrolled, disabled, denylist, key server down | LLD 02 s10 |
 | `tests/test_router.py` | Rules, classifier, complexity, latency, safety without a classifier, shadow mode, evaluation, end to end | LLD 07 s10 |
 | `studybuddy/retrieval/qdrant_store.py` | Qdrant `ChunkStore`: collection and payload indexes, BM25 sparse encoder, upsert / publish_version / remove / flag, filtered dense, sparse and neighbour search | LLD 05 D3, LLD 04 s4, LLD 01 s3 |
 | `studybuddy/api/dev_seed_qdrant.py` | One-off script that loads the demo notes into a Qdrant server for the dev app | — |
@@ -158,3 +162,10 @@ The demo course (`t1` / `c1`) has five tiny notes. Try "How do I cancel my cours
 - Tests need a real PostgreSQL. The harness uses trust auth on a unix socket: test-only, never a deployment pattern. Role passwords are set via `bootstrap(conn, passwords=...)` and must come from your secret store.
 - RLS protects against missing filters, not against code that holds a connection: such code can still run `SET app.tenant_id`. Keep raw connections inside `Database.scoped()` and review any new use of the pool.
 - Instructors have no roster access and there are no analytics views yet. `message`, `audit_log`, `usage_ledger` are not partitioned. There is no relay role for the outbox (a cross-tenant scan needs its own reviewed design). The usage ledger is not yet persisted to Postgres. Retention/purge jobs are not built.
+
+## Auth limits
+- Never run against a real Keycloak. Realm, client, `tenant_id` and `roles` claim mappers, audience and token lifetime are configuration you must create; none is provided here. Claim names are assumptions from LLD 02 s4.
+- The database owns role and status after first login. Token roles only choose the starting role of a new user (never `tenant_admin`); changing IdP groups later does not change an existing user's role.
+- Only `/chat` is gated by `authorize()` (role gate; enrollment stays in the repo). Document, analytics, ticket and admin endpoints do not exist yet; their rules are in the policy table and tested, not enforced anywhere.
+- Denylist is in memory (single process); a Redis one is not built. If the denylist errors, requests fail closed with 503. Nothing yet writes to it when an admin disables a user.
+- Not built: refresh-token handling (IdP/SPA side), service identities for workers (client-credentials), gateway-level route rules, login/role-change audit rows, break-glass access.

@@ -74,6 +74,8 @@ def create_app(
     `check_enrollment` is required on purpose: there is no safe default for "may this user ask about this
     course", and forgetting it would silently allow every course (LLD 01 section 3a, LLD 03 section 4).
     """
+    from ..auth.policy import role_allows  # imported here: the auth package imports this one
+
     authenticate = authenticate or GatewayHeaderAuth()
     app = FastAPI(title="StudyBuddy API", version="0.1.0")
 
@@ -87,6 +89,9 @@ def create_app(
 
     @app.post("/chat")
     async def chat(body: ChatRequest, user: Authenticated = Depends(current_user)):
+        # Gate 2a (LLD 02 s6): the role must allow chat at all. Enrollment below is the scope check.
+        if not role_allows(user.identity.role, "chat.ask"):
+            raise HTTPException(status_code=403, detail=NO_ACCESS_MESSAGE)
         # Enrollment is a required stage (LLD 03 section 4): failure to check means no answer, never a guess.
         try:
             enrolled = await asyncio.wait_for(check_enrollment(user.identity, body.course_id), enrollment_timeout_s)
