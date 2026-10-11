@@ -41,11 +41,16 @@ class SpanExporter(Protocol):
 
 
 class MemoryExporter:
-    def __init__(self) -> None:
+    """Keeps traces in memory. `max_traces` bounds it (oldest dropped) for use in a long-running process."""
+
+    def __init__(self, max_traces: int | None = None) -> None:
         self.traces: list[Trace] = []
+        self.max_traces = max_traces
 
     def export(self, trace: Trace) -> None:
         self.traces.append(trace)
+        if self.max_traces is not None and len(self.traces) > self.max_traces:
+            del self.traces[: len(self.traces) - self.max_traces]
 
 
 class TraceSampler:

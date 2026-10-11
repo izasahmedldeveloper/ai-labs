@@ -16,6 +16,7 @@
 | **Ingestion** (type sniffing from bytes, DOCX/PPTX/PDF/Markdown parsers, structure-aware chunker, injection scan with quarantine, embed with batching/backoff/content-hash reuse, idempotent worker, retry topics + dead-letter, outbox relay, atomic version swap, soft delete, 7/30-day cleanup) | LLD 04 | **Logic done, 43 tests** (31 without Postgres, 12 on real Postgres). **No real Kafka, object storage, malware scanner or OCR**: see "Ingestion limits" |
 | **Escalation** (trigger table to priority and restricted flag, tickets with SLA, dedup and per-student rate limit, tutor queue with first-claim-wins, bounded audited conversation window, replies, student reopen/cancel, SLA monitor, notifier, FAQ promotion into the cache, safety text shown even if the ticket cannot be saved) | LLD 10 | **Logic done, 35 tests** on real Postgres. **No email/chat channel, no UI, no HTTP endpoints**: see "Escalation limits" |
 | **HTTP routes + worker runner** (document upload/status/delete, student and tutor ticket endpoints, FAQ approval; `WorkerRunner` moving the outbox relay, ingestion consumer, notifier, SLA and cleanup passes with failures isolated) | LLD 04, 10, 12 | **Done, 4 end-to-end tests** over HTTP on real Postgres. Not wired into `dev.py`; no process entry point or deployment: see "Routes and runner limits" |
+| **Service assembly** (`Settings.from_env`, `create_service` building least-privilege DB pools, JWT auth, orchestrator with Postgres escalation and conversation store, routes, metrics, worker loop and alert loop; `python -m studybuddy.service`) | LLD 01-04, 10, 11 | **Done, 3 tests** end to end (upload, worker, chat, metrics) on real Postgres. Placeholders remain: see "Service limits" |
 | **Observability** (metrics registry with Prometheus text output and windowed queries, PII-safe JSON logs, per-request telemetry with sampled traces, component event counters, SLO alert rules with multi-window burn rate, end-to-end canary with a cross-tenant check, eval regression gate, `/metrics` and tenant view) | LLD 11 | **Done, 32 tests**. No OpenTelemetry, Prometheus, Alertmanager or Langfuse: see "Observability limits" |
 
 ## Run the tests
@@ -86,6 +87,7 @@ The demo course (`t1` / `c1`) has five tiny notes. Try "How do I cancel my cours
 | `studybuddy/db/migrate.py`, `session.py`, `repos.py` | Checksummed migrations; `Database.scoped()` sets tenant/user/role per transaction (fails closed); enrollment, conversation, audit and tutor repos | LLD 01 |
 | `tests/pg_harness.py`, `tests/test_rls.py`, `tests/test_db_repos.py` | Private Postgres for tests; cross-tenant, privacy, role, audit, retention and migration tests | LLD 01 s3 |
 | `studybuddy/api/routes.py`, `studybuddy/workers/runner.py`, `tests/test_routes_pg.py` | Thin HTTP layer over the services (404 for "not yours"), background loop with per-job failure isolation | LLD 04, 10, 12 |
+| `studybuddy/service.py`, `tests/test_service.py` | Environment settings, assembly of every component, background loops, entry point | all |
 | `studybuddy/observability/`, `tests/test_observability.py` | Metrics, scrubbing logger, request observer + sampler, event sink, alert engine, canary, eval gate, metrics routes | LLD 11 |
 | `studybuddy/db/sql/004_escalation.sql` | Ticket states, tutor queue and claim policies, student/tutor update guards, append-only replies, bounded tutor window | LLD 10 s3, s4 |
 | `studybuddy/escalation/policy.py`, `service.py` | Trigger table (reason -> priority, restricted), ticket creation with dedup/rate limit/advisory lock, student, tutor and resolve actions | LLD 10 s1-s5 |
@@ -220,3 +222,12 @@ The demo course (`t1` / `c1`) has five tiny notes. Try "How do I cancel my cours
 - Not wired in: `create_app`/`dev.py` do not install `RequestObserver` or `add_metrics_routes`, and no component is given the `EventSink` by default. `sb_pii_leaks_total` and `sb_urgent_tickets_unclaimed` exist but nothing sets them yet (a log scanner and a queue-depth job are needed). The canary needs two seeded test tenants and a way to ask through the real pipeline; only the checker is built.
 - Logs refuse a fixed list of text-bearing keys and scrub strings with the same PII patterns as the guardrails, so PII in an unusual format can still get through in an allowed field.
 - The eval gate compares numbers; producing them (running the eval set) is not built.
+
+## Service limits
+- Never run against a live Postgres, IdP or model API outside the tests. The tests use the private Postgres, a static key set and the fake model; `python -m studybuddy.service` itself has not been started as a process.
+- Still in memory in the service: object store, message broker, search index, semantic cache, JWT denylist, usage ledger. A restart loses the search index (documents must be re-ingested) and in-flight events. A real object store, Qdrant index, broker and Redis are the next replacements; each already has an interface.
+- The embedder and reranker are the word-hashing placeholders, not a real embedding model, so retrieval quality is demo grade.
+- A model key is required; `STUDYBUDDY_FAKE_MODEL=1` allows the canned model for demos. The key path reuses `build_dev_gateway` (importing `api/dev.py`, which builds the demo app as a side effect).
+- Tenants for the SLA and cleanup jobs come from `STUDYBUDDY_TENANTS`; new tenants need a restart. No admin routes, no budget state wiring, no CORS, no TLS or rate limit in front of it, no graceful drain of in-flight streams on shutdown.
+- Alerts are logged as JSON lines (`alert` events) and nothing else; the urgent-ticket gauge and PII-leak counter are still not fed.
+
