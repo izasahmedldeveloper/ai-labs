@@ -184,8 +184,9 @@ class Orchestrator:
         if decision.route == Route.HUMAN:
             ticket_id = await run_stage(ctx, "escalation", True, cfg.escalation_timeout_s,
                                         lambda: self.escalation.create(ctx, decision.reason or "router"))
-            ctx.answer = ESCALATED_MESSAGE
-            for piece in words(ESCALATED_MESSAGE):
+            message = decision.canned_answer or ESCALATED_MESSAGE  # safety rules supply a supportive text
+            ctx.answer = message
+            for piece in words(message):
                 emit(Event("token", {"text": piece}))
             emit(Event("ticket", {"ticket_id": ticket_id}))
             ctx.outcome = "escalated"
@@ -283,6 +284,8 @@ class Orchestrator:
         if not grounded:
             ctx.notices.append(UNRELIABLE_NOTICE)
             ctx.cacheable = False
+            if ctx.route == Route.CHEAP_LLM.value:  # under-routing signal for LLD 07 s9 (the cascade itself is not built)
+                ctx.router_trace["cheap_failed_final_check"] = True
             emit(Event("notice", {"message": UNRELIABLE_NOTICE}))
         return True
 

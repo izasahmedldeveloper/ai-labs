@@ -59,6 +59,8 @@ class RequestContext:
     model_call: dict = field(default_factory=dict)
     # Internal cache record: result, bypass/skip reason, similarity, entry id (LLD 06 s10). NOT sent to the client.
     cache_trace: dict = field(default_factory=dict)
+    # Internal router record: tier, rule id, intent, complexity signals (LLD 07 s9). NOT sent to the client.
+    router_trace: dict = field(default_factory=dict)
     guardrail_action: str | None = None
     policy_version: str | None = None  # guardrail policy in force; stamped on messages and cache entries (LLD 06 s6)
     cache_result: str | None = None  # hit | miss | skipped

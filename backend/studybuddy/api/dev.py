@@ -30,6 +30,7 @@ from ..modelgateway.providers.openai import OpenAIChatProvider
 from ..modelgateway.types import ModelRoute, RoutingTable, Target
 from ..pipeline import Identity, Orchestrator, PipelineConfig
 from ..pipeline import fakes
+from ..router import Router
 from ..retrieval import HybridRetriever, InMemoryChunkStore, StoredChunk
 from ..retrieval.fakes import HashingEmbedder, OverlapReranker
 from .app import create_app
@@ -113,7 +114,7 @@ def build_dev_orchestrator() -> Orchestrator:
     cache = SemanticCache(InMemoryCacheStore(), embedder, StoreVersions(retriever.chunk_store),
                           policy_version=lambda: guardrails.policy_version)
     return Orchestrator(
-        guardrails=guardrails, cache=cache, router=fakes.FakeRouter(),
+        guardrails=guardrails, cache=cache, router=Router(embedder=embedder),
         retriever=retriever, generator=generator,
         output_guardrails=output, escalation=fakes.FakeEscalation(), config=config,
     )

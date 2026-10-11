@@ -39,7 +39,8 @@ class RouteDecision:
     route: Route
     needs_retrieval: bool
     reason: str = ""
-    canned_answer: str | None = None  # for RULE / REDIRECT
+    canned_answer: str | None = None  # for RULE / REDIRECT; for HUMAN it replaces the default "passed to your tutor" text
+    confidence: float | None = None  # LLD 07 s2; recorded, not used by the pipeline
 
 
 @dataclass(frozen=True)
