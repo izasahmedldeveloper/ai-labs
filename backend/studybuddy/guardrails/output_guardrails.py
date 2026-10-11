@@ -66,7 +66,8 @@ class RuleOutputGuardrails:
 
         if p.citation_pattern is not None:
             cited = set(p.citation_pattern.findall(answer))
-            known = {c.id for c in chunks}
+            known = ({str(i) for i in range(1, len(chunks) + 1)} if p.citation_ids == "ordinal"
+                     else {c.id for c in chunks})
             if cited - known:
                 self._emit(ctx, "final_fail", rule_id="citation.invalid", category="citation")
                 return False

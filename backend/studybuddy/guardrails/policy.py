@@ -107,6 +107,9 @@ class Policy:
     # Off by default until the model stage (LLD 09) fixes how answers cite sources.
     citation_pattern: re.Pattern | None = None
     require_citations: bool = False
+    # "chunk_id": the pattern captures chunk ids. "ordinal": the pattern captures numbers N of [S<N>] labels, which
+    # map to the N-th source of the answer (LLD 09 B6). The model gateway's prompt uses ordinal labels.
+    citation_ids: str = "chunk_id"
 
     def with_rule_mode(self, rule_id: str, mode: str) -> "Policy":
         """A copy of this policy with one rule switched to enforce/shadow/off (raises if the rule is unknown)."""
@@ -128,3 +131,4 @@ class Policy:
 
     def with_version(self, version: str) -> "Policy":
         return replace(self, version=version)
+ORDINAL_CITATION = re.compile(r"\[S(\d+)\]")

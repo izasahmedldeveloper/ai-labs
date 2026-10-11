@@ -21,7 +21,11 @@ from __future__ import annotations
 
 import os
 
-from ..guardrails import RuleInputGuardrails, RuleOutputGuardrails
+from ..guardrails import Policy, RuleInputGuardrails, RuleOutputGuardrails
+from ..guardrails.policy import ORDINAL_CITATION
+from ..modelgateway import (BudgetTracker, GatewayGenerator, InMemoryUsageLedger, ModelGateway, PromptBuilder)
+from ..modelgateway.providers.anthropic import AnthropicChatProvider
+from ..modelgateway.types import ModelRoute, RoutingTable, Target
 from ..pipeline import Identity, Orchestrator, PipelineConfig
 from ..pipeline import fakes
 from ..retrieval import HybridRetriever, InMemoryChunkStore, StoredChunk
@@ -56,12 +60,36 @@ def build_dev_retriever() -> HybridRetriever:
     return HybridRetriever(store, embedder, reranker=OverlapReranker(DEMO_SYNONYMS))
 
 
+def build_dev_gateway(api_key: str) -> ModelGateway:
+    """Real gateway (LLD 09 B) with the Anthropic provider. NOT TESTED AGAINST THE LIVE API. Model names are
+    env-overridable; verify them against your account before relying on this."""
+    cheap = os.environ.get("STUDYBUDDY_CHEAP_MODEL", "claude-haiku-5-5")
+    strong = os.environ.get("STUDYBUDDY_STRONG_MODEL", "claude-sonnet-5-5")
+    routes = {
+        "chat-cheap": ModelRoute("chat-cheap", Target("anthropic", cheap), ttft_timeout_s=2.0),
+        "chat-strong": ModelRoute("chat-strong", Target("anthropic", strong), ttft_timeout_s=3.0),
+    }
+    return ModelGateway(RoutingTable("dev-1", routes), {"anthropic": AnthropicChatProvider(api_key)},
+                        ledger=DEV_LEDGER)
+
+
+DEV_LEDGER = InMemoryUsageLedger()
+DEV_BUDGETS = BudgetTracker(DEV_LEDGER, tenant_monthly_budget={}, default_tenant_monthly=1_000_000)
+
+
 def build_dev_orchestrator() -> Orchestrator:
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        # The pipeline waits longer for the first token than the gateway does, so failover can happen inside it.
+        generator = GatewayGenerator(build_dev_gateway(api_key), PromptBuilder())
+        config = PipelineConfig(model_ttft_timeout_s=8.0)
+        output = RuleOutputGuardrails(Policy(citation_pattern=ORDINAL_CITATION, citation_ids="ordinal"))
+    else:
+        generator, config, output = fakes.FakeGenerator(token_delay=0.05), PipelineConfig(), RuleOutputGuardrails()
     return Orchestrator(
         guardrails=RuleInputGuardrails(), cache=fakes.FakeCache(), router=fakes.FakeRouter(),
-        retriever=build_dev_retriever(), generator=fakes.FakeGenerator(token_delay=0.05),
-        output_guardrails=RuleOutputGuardrails(), escalation=fakes.FakeEscalation(),
-        config=PipelineConfig(),
+        retriever=build_dev_retriever(), generator=generator,
+        output_guardrails=output, escalation=fakes.FakeEscalation(), config=config,
     )
 
 
@@ -70,6 +98,7 @@ def build_dev_app():
         build_dev_orchestrator(),
         authenticate=GatewayHeaderAuth(os.environ.get("STUDYBUDDY_GATEWAY_SECRET") or None),
         check_enrollment=allow_all_enrollment,
+        budget_state=DEV_BUDGETS.state,
     )
 
 

@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.background import BackgroundTask
 
-from ..pipeline import Identity, Orchestrator, RequestContext
+from ..pipeline import BudgetState, Identity, Orchestrator, RequestContext
 from .auth import Authenticated, GatewayHeaderAuth
 from .sse import DEFAULT_KEEPALIVE_S, aclose_quietly, sse_frames
 
@@ -50,6 +50,13 @@ class ChatRequest(BaseModel):
         return value
 
 
+_ORDER = [BudgetState.OK, BudgetState.WARNING, BudgetState.SOFT_LIMIT, BudgetState.HARD_LIMIT]
+
+
+def _worse(a: BudgetState, b: BudgetState) -> BudgetState:
+    return a if _ORDER.index(a) >= _ORDER.index(b) else b
+
+
 def create_app(
     orchestrator: Orchestrator,
     *,
@@ -58,6 +65,7 @@ def create_app(
     keepalive_s: float = DEFAULT_KEEPALIVE_S,
     enrollment_timeout_s: float = 0.5,
     busy_retry_after_s: int = 3,
+    budget_state: Callable[[str, str], BudgetState] | None = None,
 ) -> FastAPI:
     """Build the app around an orchestrator.
 
@@ -90,7 +98,8 @@ def create_app(
             course_id=body.course_id,
             question=body.question,
             request_id=body.request_id,
-            budget_state=user.budget_state,
+            budget_state=_worse(user.budget_state, budget_state(user.identity.tenant_id, user.identity.user_id))
+            if budget_state else user.budget_state,
         )
         events = orchestrator.handle(ctx).__aiter__()
         try:
