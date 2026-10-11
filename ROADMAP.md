@@ -24,3 +24,7 @@ the problem, options considered, the trade-off we chose, and how to verify it.
 | 12 | SSE streaming | Time-to-first-token UX |
 
 Stages 2–12 can be reordered after Stage 1; tell me if you want a different order.
+
+## Build progress
+- Design phase complete: HLD + 12 LLDs (`docs/`). Index: `docs/README.md`.
+- Implementation started: `backend/` — chat orchestrator pipeline core (LLD 03) done with tests. See `backend/README.md`.

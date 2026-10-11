@@ -1,0 +1,16 @@
+[project]
+name = "studybuddy"
+version = "0.1.0"
+description = "StudyBuddy backend: chat orchestrator pipeline (LLD 03) and services"
+requires-python = ">=3.12"
+dependencies = []  # core pipeline is stdlib-only; API layer adds fastapi, uvicorn, sse-starlette (see README)
+
+[project.optional-dependencies]
+api = ["fastapi", "uvicorn[standard]", "sse-starlette", "pydantic>=2"]
+dev = ["pytest", "pytest-asyncio", "httpx"]
+
+[tool.setuptools.packages.find]
+include = ["studybuddy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
