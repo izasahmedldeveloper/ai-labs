@@ -34,7 +34,7 @@ def bootstrap(conn, passwords: dict[str, str] | None = None) -> None:
 
     conn.execute((SQL_DIR / BOOTSTRAP).read_text())
     for role, password in (passwords or {}).items():
-        if role not in {"sb_owner", "sb_auth", "sb_app", "sb_worker", "sb_eval"}:
+        if role not in {"sb_owner", "sb_auth", "sb_app", "sb_worker", "sb_eval", "sb_relay"}:
             raise MigrationError(f"unknown role {role!r}")
         conn.execute(sql.SQL("ALTER ROLE {} PASSWORD {}").format(sql.Identifier(role), sql.Literal(password)))
     conn.commit()

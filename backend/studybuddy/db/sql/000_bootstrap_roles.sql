@@ -5,11 +5,12 @@
 --   sb_app     the request path: acts for one user, one tenant, one role per transaction.
 --   sb_worker  ingestion, retention and maintenance jobs: tenant-scoped, wider table rights, no chat access.
 --   sb_eval    the evaluation job: may read message_raw (opt-in tenants only), nothing else.
+--   sb_relay   the outbox relay: may read unpublished outbox rows of ALL tenants and mark them published; nothing else.
 --   sb_reader  NOLOGIN. Owns the audited tutor-read function; the only way to read another user's conversation.
 DO $$
 DECLARE r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['sb_owner', 'sb_auth', 'sb_app', 'sb_worker', 'sb_eval'] LOOP
+  FOREACH r IN ARRAY ARRAY['sb_owner', 'sb_auth', 'sb_app', 'sb_worker', 'sb_eval', 'sb_relay'] LOOP
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE', r);
     END IF;

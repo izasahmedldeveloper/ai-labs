@@ -62,6 +62,16 @@ class InMemoryChunkStore:
     def current_version(self, tenant_id: str, course_id: str, document_id: str) -> str | None:
         return self._current.get((tenant_id, course_id, document_id))
 
+    def delete_version(self, tenant_id: str, course_id: str, document_id: str, version_id: str) -> None:
+        for cid in [c.id for c in self._chunks.values() if (c.tenant_id, c.course_id, c.document_id, c.version_id)
+                    == (tenant_id, course_id, document_id, version_id)]:
+            self._chunks.pop(cid, None)
+            self._vectors.pop(cid, None)
+
+    def count(self, tenant_id: str, course_id: str, document_id: str | None = None, version_id: str | None = None) -> int:
+        return sum(1 for c in self._chunks.values() if c.tenant_id == tenant_id and c.course_id == course_id
+                   and (document_id is None or c.document_id == document_id) and (version_id is None or c.version_id == version_id))
+
     def remove_document(self, tenant_id: str, course_id: str, document_id: str) -> None:
         self.set_current(tenant_id, course_id, document_id, None)  # chunks stay until cleanup; never served
 

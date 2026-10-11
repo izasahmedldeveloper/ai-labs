@@ -115,7 +115,7 @@ class RolesAndSchemaTests(RlsCase):
     def test_application_roles_cannot_bypass_rls(self):
         with sup() as c:
             rows = c.execute("SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname LIKE 'sb_%'").fetchall()
-        self.assertEqual(len(rows), 6)
+        self.assertEqual(len(rows), 7)
         for name, is_super, bypass in rows:
             self.assertFalse(is_super or bypass, name)
 
