@@ -9,3 +9,9 @@ from .types import (ChunkStore, Embedder, Hit, IsolationViolation, MissingFilter
 __all__ = ["ChunkStore", "Embedder", "EvalItem", "EvalReport", "Hit", "HybridRetriever", "InMemoryChunkStore",
            "IsolationViolation", "MissingFilterError", "QueryRewriter", "Reranker", "RetrievalConfig",
            "RetrievalUnavailable", "SearchFilter", "StoredChunk", "evaluate", "reciprocal_rank_fusion"]
+
+try:  # optional dependency: `pip install qdrant-client`
+    from .qdrant_store import Bm25SparseEncoder, QdrantChunkStore
+    __all__ += ["Bm25SparseEncoder", "QdrantChunkStore"]
+except ImportError:  # pragma: no cover
+    pass

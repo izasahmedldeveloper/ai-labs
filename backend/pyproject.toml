@@ -7,7 +7,9 @@ dependencies = []  # core pipeline is stdlib-only; API layer adds fastapi and uv
 
 [project.optional-dependencies]
 api = ["fastapi", "uvicorn[standard]", "pydantic>=2"]
-dev = ["pytest", "pytest-asyncio", "httpx"]
+qdrant = ["qdrant-client>=1.10"]
+providers = ["httpx"]
+dev = ["pytest", "pytest-asyncio", "httpx", "qdrant-client>=1.10"]
 
 [tool.setuptools.packages.find]
 include = ["studybuddy*"]

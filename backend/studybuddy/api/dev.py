@@ -19,6 +19,7 @@ deterministic word-hashing fakes, and the model answers from canned text. Replac
 """
 from __future__ import annotations
 
+import inspect
 import os
 
 from ..cache import InMemoryCacheStore, SemanticCache
@@ -31,11 +32,12 @@ from ..modelgateway.types import ModelRoute, RoutingTable, Target
 from ..pipeline import Identity, Orchestrator, PipelineConfig
 from ..pipeline import fakes
 from ..router import Router
-from ..retrieval import HybridRetriever, InMemoryChunkStore, StoredChunk
+from ..retrieval import HybridRetriever, InMemoryChunkStore, QdrantChunkStore, StoredChunk
 from ..retrieval.fakes import HashingEmbedder, OverlapReranker
 from .app import create_app
 from .auth import GatewayHeaderAuth
 
+QDRANT_DEMO_COLLECTION = "studybuddy_demo_chunks_v1"
 DEMO_SYNONYMS = {"cancel": "drop", "course": "class", "withdraw": "drop", "withdrawal": "drop"}
 DEMO_NOTES = (  # (short id, document, position, text)
     ("norm", "d1", 0, "Normalization removes redundancy from relational tables by splitting them. "
@@ -52,11 +54,24 @@ async def allow_all_enrollment(identity: Identity, course_id: str) -> bool:
     return True
 
 
+def demo_chunks() -> list[StoredChunk]:
+    return [StoredChunk(f"t1-c1-{short}", text, "t1", "c1", doc, "v1", ordinal=ordinal, page=ordinal + 1,
+                        heading="Course notes") for short, doc, ordinal, text in DEMO_NOTES]
+
+
 def build_dev_retriever(embedder: HashingEmbedder | None = None) -> HybridRetriever:
+    """In-memory notes by default. With QDRANT_URL set, searches a real Qdrant instead; seed it once with
+    `python -m studybuddy.api.dev_seed_qdrant` (the app does not write to Qdrant itself)."""
     embedder = embedder or HashingEmbedder(synonyms=DEMO_SYNONYMS)
+    qdrant_url = os.environ.get("QDRANT_URL")
+    if qdrant_url:
+        store = QdrantChunkStore.from_url(qdrant_url, os.environ.get("QDRANT_COLLECTION", QDRANT_DEMO_COLLECTION),
+                                          dim=embedder.dim, api_key=os.environ.get("QDRANT_API_KEY"))
+        retriever = HybridRetriever(store, embedder, reranker=OverlapReranker(DEMO_SYNONYMS))
+        retriever.chunk_store = store
+        return retriever
     store = InMemoryChunkStore()
-    chunks = [StoredChunk(f"t1-c1-{short}", text, "t1", "c1", doc, "v1", ordinal=ordinal, page=ordinal + 1,
-                          heading="Course notes") for short, doc, ordinal, text in DEMO_NOTES]
+    chunks = demo_chunks()
     store.add(chunks, embedder.embed_sync([c.text for c in chunks]))
     for chunk in chunks:
         store.set_current(chunk.tenant_id, chunk.course_id, chunk.document_id, chunk.version_id)
@@ -66,13 +81,14 @@ def build_dev_retriever(embedder: HashingEmbedder | None = None) -> HybridRetrie
 
 
 class StoreVersions:
-    """Current document versions straight from the (in-memory) chunk store; the real one reads Postgres (LLD 01)."""
+    """Current document versions straight from the chunk store; the real one reads Postgres (LLD 01)."""
 
-    def __init__(self, store: InMemoryChunkStore):
+    def __init__(self, store):
         self._store = store
 
     async def current_version(self, tenant_id: str, course_id: str, document_id: str) -> str | None:
-        return self._store.current_version(tenant_id, course_id, document_id)
+        result = self._store.current_version(tenant_id, course_id, document_id)
+        return await result if inspect.isawaitable(result) else result
 
 
 def build_dev_gateway(openai_key: str | None, anthropic_key: str | None) -> ModelGateway:
