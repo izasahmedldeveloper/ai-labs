@@ -8,22 +8,9 @@ import os
 from typing import AsyncIterator
 
 from ..types import Delta, Done, ProviderError, ProviderRequest, Usage
+from ._http import status_error
 
 API_URL = "https://api.anthropic.com/v1/messages"
-
-
-def _status_error(status: int, headers) -> ProviderError:
-    if status == 429:
-        try:
-            retry = float(headers.get("retry-after")) if headers.get("retry-after") else None
-        except ValueError:
-            retry = None
-        return ProviderError("rate_limit", "http 429", retry)
-    if status in (401, 403):
-        return ProviderError("auth", f"http {status}")
-    if status in (400, 404, 413, 422):
-        return ProviderError("bad_request", f"http {status}")
-    return ProviderError("server", f"http {status}")
 
 
 class AnthropicChatProvider:
@@ -49,7 +36,7 @@ class AnthropicChatProvider:
             async with httpx.AsyncClient(transport=self._transport, timeout=self._timeout) as client:
                 async with client.stream("POST", self._url, json=body, headers=headers) as resp:
                     if resp.status_code != 200:
-                        raise _status_error(resp.status_code, resp.headers)
+                        raise status_error(resp.status_code, resp.headers)
                     async for line in resp.aiter_lines():
                         if not line.startswith("data:"):
                             continue
