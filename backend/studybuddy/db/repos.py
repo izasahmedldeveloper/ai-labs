@@ -87,9 +87,10 @@ class ConversationRepo:
         cited = [c.id for c in ctx.chunks]
         total_ms = int((__import__("time").monotonic() - ctx.started_at) * 1000)
         async with self.db.scoped(who.tenant_id, who.user_id, who.role) as conn:
-            await conn.execute(
-                "INSERT INTO message (tenant_id, conversation_id, role, content_redacted, trace_id) "
-                "VALUES (app_tenant(), %s, 'user', %s, %s)", (ctx.conversation_id, ctx.question, ctx.trace_id))
+            if not ctx.user_message_id:  # escalation may already have stored it (a ticket points at it)
+                await conn.execute(
+                    "INSERT INTO message (tenant_id, conversation_id, role, content_redacted, trace_id) "
+                    "VALUES (app_tenant(), %s, 'user', %s, %s)", (ctx.conversation_id, ctx.question, ctx.trace_id))
             if ctx.answer:
                 route = ctx.route if ctx.route in ("cache", "rule", "redirect", "cheap_llm", "strong_llm", "human") else None
                 await conn.execute(

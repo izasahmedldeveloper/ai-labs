@@ -116,6 +116,8 @@ class TextHelperTests(unittest.TestCase):
             "call +91 98765 43210 please": ("call [phone] please", ["phone"]),
             "call (555) 123-4567 please": ("call [phone] please", ["phone"]),
             "call 9876543210 please": ("call [phone] please", ["phone"]),
+            "call 07700 900123 please": ("call [phone] please", ["phone"]),
+            "call +44 7700 900123 please": ("call [phone] please", ["phone"]),
             "call 555.123.4567 please": ("call [phone] please", ["phone"]),
             "card 4111 1111 1111 1111 ok": ("card [card] ok", ["card"]),
             "aadhaar 1234 5678 9012 ok": ("aadhaar [id] ok", ["national_id"]),

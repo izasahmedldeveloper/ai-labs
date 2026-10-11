@@ -190,6 +190,21 @@ class SemanticCache:
         finally:
             self._release(ctx)
 
+    async def store_faq(self, tenant_id: str, course_id: str, question: str, answer: str,
+                        tags: Sequence[tuple[str, str]] = ()) -> str:
+        """A tutor-approved answer (LLD 10 s6, LLD 06 s2 exception): cached like any answer, so it expires with its TTL, is
+        removed by document-change events for the documents in `tags`, and is dropped on a policy-version change (reload
+        it from the faq_entry table). The caller has already checked that question and answer carry no personal data."""
+        ns = (tenant_id, course_id, self.embedder_id)
+        normalized, now = normalize_question(question), self._clock()
+        embedding = tuple((await self.embedder.embed([normalized]))[0])
+        entry = CacheEntry(id=entry_id(ns, normalized), namespace=ns, question=normalized, embedding=embedding, answer=answer,
+                           sources=(), tags=tuple(sorted(tuple(t) for t in tags)), created_at=now, expires_at=now + self.cfg.default_ttl_s,
+                           policy_version=self._policy_version(), route="faq", flags=("faq",))
+        await self.backend.put(entry)
+        self.stats["faq_store"] += 1
+        return entry.id
+
     def _release(self, ctx: RequestContext) -> None:
         key = self._owned.pop(id(ctx), None)
         marker = self._inflight.get(key) if key else None

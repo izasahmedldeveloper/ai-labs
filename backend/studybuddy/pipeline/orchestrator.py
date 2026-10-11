@@ -25,6 +25,10 @@ BLOCKED_MESSAGE = "I can only help with questions about your course notes."
 OUTPUT_BLOCKED_MESSAGE = "I can't share that answer. You can rephrase the question or ask a tutor."
 BUDGET_MESSAGE = "Your university's usage limit has been reached. Please contact your administrator."
 BUSY_MESSAGE = "You already have questions in progress. Please wait a moment."
+TICKET_UNAVAILABLE_MESSAGE = ("I couldn't notify a tutor automatically. Please contact your tutor or student support directly "
+                              "if you need help soon.")
+NONE_FOUND_ESCALATED_MESSAGE = ("I still couldn't find this in your course notes, so I've passed it to your tutor. "
+                                "They'll reply here as soon as they can.")
 ESCALATED_MESSAGE = "I've passed this to your tutor. They'll reply here as soon as they can."
 UNRELIABLE_NOTICE = "Part of this answer could not be fully verified against your notes."
 
@@ -188,15 +192,26 @@ class Orchestrator:
             return
 
         if decision.route == Route.HUMAN:
-            ticket_id = await run_stage(ctx, "escalation", True, cfg.escalation_timeout_s,
-                                        lambda: self.escalation.create(ctx, decision.reason or "router"))
+            ticket_id: str | None
+            try:
+                ticket_id = await run_stage(ctx, "escalation", True, cfg.escalation_timeout_s,
+                                            lambda: self.escalation.create(ctx, decision.reason or "router"))
+            except StageFailed:
+                if decision.canned_answer is None:
+                    raise
+                # A safety reply carries support resources: the student gets them even if no ticket could be saved (LLD 10 s2, s7).
+                ticket_id = None
+                ctx.router_trace["ticket_failed"] = True
             message = decision.canned_answer or ESCALATED_MESSAGE  # safety rules supply a supportive text
             ctx.answer = message
             for piece in words(message):
                 emit(Event("token", {"text": piece}))
-            emit(Event("ticket", {"ticket_id": ticket_id}))
+            if ticket_id is not None:
+                emit(Event("ticket", {"ticket_id": ticket_id}))
+            else:
+                emit(Event("notice", {"code": "ticket_unavailable", "message": TICKET_UNAVAILABLE_MESSAGE}))
             ctx.outcome = "escalated"
-            emit(Event("done", {"sources": [], "route": ctx.route, "ticket_id": ticket_id}))
+            emit(Event("done", {"sources": [], "route": ctx.route, **({"ticket_id": ticket_id} if ticket_id else {})}))
             return
 
         chunks: tuple[Chunk, ...] = ()
@@ -206,12 +221,20 @@ class Orchestrator:
                                      lambda: self.retriever.retrieve(ctx))
             ctx.retrieval_confidence = result.confidence
             if result.none_found:
-                ctx.answer = NONE_FOUND_MESSAGE
+                # Repeated misses hand the question to a tutor (LLD 10 s1). Optional: without it the plain message is shown.
+                ticket_id = None
+                after_miss = getattr(self.escalation, "after_miss", None)
+                if after_miss is not None:
+                    ticket_id = await run_stage(ctx, "escalation", False, cfg.escalation_timeout_s, lambda: after_miss(ctx))
+                message = NONE_FOUND_ESCALATED_MESSAGE if ticket_id else NONE_FOUND_MESSAGE
+                ctx.answer = message
                 ctx.cacheable = False
-                for piece in words(NONE_FOUND_MESSAGE):
+                for piece in words(message):
                     emit(Event("token", {"text": piece}))
-                ctx.outcome = "none_found"
-                emit(Event("done", {"sources": [], "route": ctx.route, "none_found": True}))
+                if ticket_id:
+                    emit(Event("ticket", {"ticket_id": ticket_id}))
+                ctx.outcome = "escalated" if ticket_id else "none_found"
+                emit(Event("done", {"sources": [], "route": ctx.route, "none_found": True, **({"ticket_id": ticket_id} if ticket_id else {})}))
                 return
             chunks = result.chunks
             ctx.chunks = chunks

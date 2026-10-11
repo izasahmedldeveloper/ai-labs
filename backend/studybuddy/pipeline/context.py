@@ -43,6 +43,9 @@ class RequestContext:
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     budget_state: BudgetState = BudgetState.OK
     conversation_id: str | None = None  # set by the API from the conversation store (LLD 01); persistence key only
+    # Set by escalation when it had to store the student's message first (a ticket points at it, LLD 10 s2); the
+    # conversation store then does not write that message a second time.
+    user_message_id: str | None = None
     started_at: float = field(default_factory=time.monotonic)
 
     # Recent messages of this conversation (oldest first), loaded SERVER-side from the conversation store

@@ -84,8 +84,8 @@ class World:
                           (mid, t["id"], conv, role, text))
             c.execute("INSERT INTO message_raw (tenant_id, message_id, content) VALUES (%s,%s,%s)", (t["id"], t[f"msg_{who}_user"], f"{who} RAW text"))
         t["ticket"] = new()
-        c.execute("INSERT INTO escalation_ticket (id, tenant_id, course_id, conversation_id, message_id, reason, status, assigned_tutor_id) "
-                  "VALUES (%s,%s,%s,%s,%s,'grade','assigned',%s)", (t["ticket"], t["id"], t["c1"], t["conv_s1"], t["msg_s1_assistant"], t["tutor"]))
+        c.execute("INSERT INTO escalation_ticket (id, tenant_id, course_id, conversation_id, message_id, reason, status, assigned_tutor_id, student_id) "
+                  "VALUES (%s,%s,%s,%s,%s,'grade','assigned',%s,%s)", (t["ticket"], t["id"], t["c1"], t["conv_s1"], t["msg_s1_assistant"], t["tutor"], t["s1"]))
         c.execute("INSERT INTO usage_ledger (tenant_id, user_id, day, tokens_in) VALUES (%s,%s,current_date,5)", (t["id"], t["s1"]))
         c.execute("INSERT INTO audit_log (tenant_id, actor_id, action) VALUES (%s,%s,'seed')", (t["id"], t["admin"]))
         c.execute("INSERT INTO outbox_event (tenant_id, type, payload) VALUES (%s,'x','{}')", (t["id"],))
@@ -405,8 +405,8 @@ class TicketTests(RlsCase):
             self.assertEqual(c.execute("UPDATE escalation_ticket SET status = 'resolved'").rowcount, 0)
 
     def test_a_student_can_open_a_ticket_only_on_their_own_conversation(self):
-        sql = ("INSERT INTO escalation_ticket (tenant_id, course_id, conversation_id, message_id, reason) "
-               "VALUES (app_tenant(), %s, %s, %s, 'help')")
+        sql = ("INSERT INTO escalation_ticket (tenant_id, course_id, conversation_id, message_id, reason, student_id) "
+               "VALUES (app_tenant(), %s, %s, %s, 'help', app_user_id())")
         with scoped("sb_app", *self.w.who("A", "s2")) as c:
             c.execute(sql, (self.A["c1"], self.A["conv_s2"], self.A["msg_s2_assistant"]))
         with scoped("sb_app", *self.w.who("A", "s2")) as c, self.assertRaises(errors.InsufficientPrivilege):
